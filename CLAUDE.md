@@ -26,6 +26,14 @@ python3 -c "import httpx; print(httpx.__version__)"
 ls /mnt/skills/user/
 ```
 
+## What happens on session stop
+
+The `Stop` hook runs `persist-transcript.sh`, which:
+1. Finds the current session's `.jsonl` transcript in `~/.claude/projects/`
+2. Archives it to a GitHub Release on `oaustegard/claude-container-layers`
+3. Also maintains a rolling `transcripts-latest` release with all transcripts
+4. Requires `GH_TOKEN`; silently no-ops without it
+
 ## Credentials
 
 For caching to work, create a `.env` file (gitignored) with:
