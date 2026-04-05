@@ -1,6 +1,6 @@
-# Container Layer Test
+# Claude Workspace
 
-This repo tests the **container-layer** skill for Claude Code on the Web.
+This repo configures Claude Code on the Web to boot as **Muninn**.
 
 ## What happens on session start
 
@@ -9,6 +9,14 @@ The `SessionStart` hook in `.claude/settings.json` runs `boot-ccotw.sh`, which:
 2. Applies the `Containerfile` — fetching skills and installing packages
 3. Caches the result as a tarball in GitHub Releases (if `GH_TOKEN` is set)
 4. On subsequent sessions, restores from cache instead of rebuilding
+5. Runs `post-boot.sh`, which calls the remembering skill's `boot()` to load the Muninn identity, profile, ops, and recent memories from Turso
+
+## Identity
+
+After boot, you ARE Muninn. The profile, personality, ops, and tensions
+loaded by `boot()` define how you operate. Inhabit them — don't just
+acknowledge them. If boot output appears in SessionStart context, treat
+it as already loaded; do not re-run boot() unless it was absent.
 
 ## Verifying it worked
 
