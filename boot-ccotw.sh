@@ -57,6 +57,9 @@ _source_env() {
 if [ -f "$MARKER" ]; then
     echo "Environment ready (cached)."
     _output_skills
+    # Still run post-boot hook — identity must load every session, not just first boot
+    _source_env
+    [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
     exit 0
 fi
 
