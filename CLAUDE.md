@@ -6,10 +6,15 @@ This repo configures Claude Code on the Web to boot as **Muninn**.
 
 The `SessionStart` hook in `.claude/settings.json` runs `boot-ccotw.sh`, which:
 1. Bootstraps the container-layer skill from `oaustegard/claude-skills`
-2. Applies the `Containerfile` — fetching skills and installing packages
-3. Caches the result as a tarball in GitHub Releases (if `GH_TOKEN` is set)
-4. On subsequent sessions, restores from cache instead of rebuilding
-5. Runs `post-boot.sh`, which calls the remembering skill's `boot()` to load the Muninn identity, profile, ops, and recent memories from Turso
+2. Applies the `Containerfile` — installing system packages and Python deps (cached as a tarball in GitHub Releases)
+3. Fetches skills fresh from `oaustegard/claude-skills` via tarball (always current, never cached in the container layer)
+4. Sets up Python paths for the remembering skill
+5. Outputs `<available_skills>` XML frontmatter into the context window
+6. Runs `post-boot.sh`, which calls the remembering skill's `boot()` to load the Muninn identity, profile, ops, and recent memories from Turso
+
+Skills and the container layer are deliberately separated:
+- **Container layer** (cached): slow-to-install system packages, CLI tools, Python libs
+- **Skills** (fresh every session): fetched from GitHub, never stale
 
 ## Identity
 
@@ -48,7 +53,7 @@ Without it, the layer still builds — it just can't cache/restore.
 This repo (`claude-workspace`) is the **hub** — it boots and configures sessions.
 Other repos are **spokes** that you work in during sessions. Key spokes:
 
-- **`oaustegard/claude-skills`** — Skills fetched at build time via `Containerfile`.
+- **`oaustegard/claude-skills`** — Skills fetched fresh at session start.
   You can (and should) open PRs here when skills need updates.
 - **`oaustegard/claude-container-layers`** — Cache storage for built layers and
   archived transcripts. Managed automatically by boot and stop hooks.
@@ -57,18 +62,7 @@ Other repos are **spokes** that you work in during sessions. Key spokes:
 (`mcp__github__*`).** The MCP GitHub server is hard-scoped to `claude-workspace`
 only and WILL fail on every other repo. There is no way to change this — it's
 a platform limitation. The `gh` CLI (authenticated via `$GH_TOKEN`) has no
-such restriction and works across all oaustegard repos:
-
-- `oaustegard/claude-workspace` (this hub)
-- `oaustegard/claude-skills`
-- `oaustegard/claude-container-layers`
-- `oaustegard/remex`
-- `oaustegard/oaustegard.github.io`
-- `oaustegard/blog-references`
-- `oaustegard/browser-extensions`
-- `oaustegard/bookmarklets`
-- `oaustegard/aeyu.io`
-- `oaustegard/muninn.austegard.com`
+such restriction and works across all oaustegard repos.
 
 Use `gh` for ALL GitHub operations: releases, PRs, issues, file contents,
 repo browsing, API calls — including for `claude-workspace` itself. Do not
@@ -77,16 +71,11 @@ in the tool list but their repo scope cannot be expanded.
 
 When you need to fix a skill, update a spoke, or open a PR in another repo —
 do it directly via `gh`. Don't treat skills as read-only just because they
-were fetched at build time.
-
-### Cache freshness
-
-The container layer cache auto-invalidates when spoke repos change.
-`boot-ccotw.sh` defaults `INVALIDATE_ON` to `oaustegard/claude-skills`,
-so any new commit there busts the cache on next session boot. To add
-more repos, set `INVALIDATE_ON="repo1 repo2"` in `.env`.
+were fetched at boot time.
 
 ## Customizing
 
-Edit `Containerfile` to change what gets installed. The format is a
-Dockerfile subset: `FETCH`, `RUN`, `ENV`, `WORKDIR`, `SNAPSHOT`.
+Edit `Containerfile` to change what system packages and Python deps get installed.
+The format is a Dockerfile subset: `FETCH`, `RUN`, `ENV`, `WORKDIR`, `SNAPSHOT`.
+
+Skills are managed in `oaustegard/claude-skills` — not in the Containerfile.
