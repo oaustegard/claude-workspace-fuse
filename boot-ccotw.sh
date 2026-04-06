@@ -4,12 +4,25 @@
 #
 # Ephemeral containers: bootstraps skill, restores cached layer or builds fresh.
 # Idempotent within a session via marker file.
+#
+# Set BOOT_TELEMETRY=1 to emit per-phase timing data.
 
 set -e
 
 MARKER="/tmp/.container-layer-booted"
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
 CONTAINERFILE="$(cd "$PROJECT_DIR" && pwd)/Containerfile"
+
+# ── Telemetry ──
+
+_BOOT_T0=""
+if [ "${BOOT_TELEMETRY:-0}" = "1" ]; then
+    _BOOT_T0=$(date +%s%3N)
+fi
+
+_tmark() {
+    [ -n "$_BOOT_T0" ] && echo "⏱ bash:$1 $(($(date +%s%3N) - _BOOT_T0))ms"
+}
 
 # ── Functions ──
 
@@ -59,15 +72,19 @@ if [ -f "$MARKER" ]; then
     _output_skills
     # Still run post-boot hook — identity must load every session, not just first boot
     _source_env
+    _tmark "env_source"
     [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
+    _tmark "post_boot"
     exit 0
 fi
 
 # ── Main ──
 _source_env
+_tmark "env_source"
 
 # Wait for network before doing anything that hits the internet
 _wait_for_network
+_tmark "network_wait"
 
 # Bootstrap the container-layer skill from GitHub
 SKILL_DIR="/tmp/_container_layer"
@@ -82,6 +99,7 @@ if [ ! -f "$SKILL_DIR/scripts/containerfile.py" ]; then
         exit 1
     fi
 fi
+_tmark "bootstrap"
 
 # Apply the Containerfile
 if [ -f "$CONTAINERFILE" ] && [ -f "$SKILL_DIR/scripts/containerfile.py" ]; then
@@ -111,11 +129,14 @@ if [ -f "$CONTAINERFILE" ] && [ -f "$SKILL_DIR/scripts/containerfile.py" ]; then
 else
     echo "No Containerfile found at $CONTAINERFILE — skipping."
 fi
+_tmark "container_layer"
 
 touch "$MARKER"
 _output_skills
+_tmark "skills_list"
 
 # Custom post-boot hook
 [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
+_tmark "post_boot"
 
 exit 0
