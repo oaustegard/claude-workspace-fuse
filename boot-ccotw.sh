@@ -105,12 +105,13 @@ _tmark "bootstrap"
 if [ -f "$CONTAINERFILE" ] && [ -f "$SKILL_DIR/scripts/containerfile.py" ]; then
     echo "Applying container layer: $CONTAINERFILE"
 
+    # Auto-invalidate cache when skills repo changes (hub/spoke freshness)
+    INVALIDATE_ON="${INVALIDATE_ON:-oaustegard/claude-skills}"
+
     INVALIDATE_ARGS=""
-    if [ -n "$INVALIDATE_ON" ]; then
-        for repo in $INVALIDATE_ON; do
-            INVALIDATE_ARGS="$INVALIDATE_ARGS --invalidate-on $repo"
-        done
-    fi
+    for repo in $INVALIDATE_ON; do
+        INVALIDATE_ARGS="$INVALIDATE_ARGS --invalidate-on $repo"
+    done
 
     cd "$SKILL_DIR"
     python3 -m scripts.cli \

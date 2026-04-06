@@ -43,6 +43,27 @@ GH_TOKEN=ghp_your_token_here
 
 Without it, the layer still builds — it just can't cache/restore.
 
+## Hub/Spoke Working Model
+
+This repo (`claude-workspace`) is the **hub** — it boots and configures sessions.
+Other repos are **spokes** that you work in during sessions. Key spokes:
+
+- **`oaustegard/claude-skills`** — Skills fetched at build time via `Containerfile`.
+  You can (and should) open PRs here when skills need updates.
+- **`oaustegard/claude-container-layers`** — Cache storage for built layers and
+  archived transcripts. Managed automatically by boot and stop hooks.
+
+You have GitHub MCP access to repos beyond just this hub. When you need to fix
+a skill, update a spoke, or open a PR in another repo — do it directly. Don't
+treat skills as read-only just because they were fetched at build time.
+
+### Cache freshness
+
+The container layer cache auto-invalidates when spoke repos change.
+`boot-ccotw.sh` defaults `INVALIDATE_ON` to `oaustegard/claude-skills`,
+so any new commit there busts the cache on next session boot. To add
+more repos, set `INVALIDATE_ON="repo1 repo2"` in `.env`.
+
 ## Customizing
 
 Edit `Containerfile` to change what gets installed. The format is a
