@@ -97,6 +97,11 @@ if [ -f "$CONTAINERFILE" ] && [ -f "$SKILL_DIR/scripts/containerfile.py" ]; then
         --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
         $INVALIDATE_ARGS \
         restore "$CONTAINERFILE" 2>&1
+    # Record Containerfile hash at boot for change detection on session end
+    python3 -m scripts.cli hash "$CONTAINERFILE" \
+        --token "${GH_TOKEN:-}" \
+        --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
+        2>/dev/null > /tmp/.containerfile-hash || true
     cd - > /dev/null
 
     echo "✓ Container layer applied"
