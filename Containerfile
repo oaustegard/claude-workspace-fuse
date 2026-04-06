@@ -10,11 +10,15 @@ RUN uv pip install --system httpx libsql-experimental
 # Path config for remembering skill
 RUN echo '/mnt/skills/user/remembering' > /usr/local/lib/python3.11/dist-packages/muninn-remembering.pth
 
+# GitHub CLI for spoke repo access
+RUN apt-get install -y gh
+
 # Noop setup script to suppress "No setup script configured" message
 RUN touch /home/user/setup.sh && chmod +x /home/user/setup.sh
 
 # Snapshot pip packages and config files
 SNAPSHOT /usr/local/lib/python3.11/dist-packages
 SNAPSHOT /home/user/setup.sh
+SNAPSHOT /usr/bin/gh
 
 WORKDIR /home/user
