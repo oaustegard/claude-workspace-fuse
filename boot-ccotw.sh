@@ -100,10 +100,15 @@ _source_env() {
 # ── Idempotency ──
 if [ -f "$MARKER" ]; then
     echo "Environment ready (cached)."
-    _output_skills
-    # Still run post-boot hook — identity must load every session, not just first boot
     _source_env
     _tmark "env_source"
+    # Skills are always fetched fresh — never rely on stale copies from a previous boot
+    _wait_for_network
+    _fetch_skills
+    _setup_python_paths
+    _tmark "skills_fetch"
+    _output_skills
+    # Still run post-boot hook — identity must load every session, not just first boot
     [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
     _tmark "post_boot"
     exit 0
