@@ -12,4 +12,5 @@ if [ "${BOOT_TELEMETRY:-0}" = "1" ]; then
     TELEMETRY_ARG="telemetry=True"
 fi
 
-python3 -c "from scripts import boot; print(boot($TELEMETRY_ARG))"
+python3 -c "from scripts import boot; print(boot($TELEMETRY_ARG))" 2>&1 || \
+python3 -c "from scripts import boot; print(boot())"
