@@ -53,9 +53,26 @@ Other repos are **spokes** that you work in during sessions. Key spokes:
 - **`oaustegard/claude-container-layers`** — Cache storage for built layers and
   archived transcripts. Managed automatically by boot and stop hooks.
 
-You have GitHub MCP access to repos beyond just this hub. When you need to fix
-a skill, update a spoke, or open a PR in another repo — do it directly. Don't
-treat skills as read-only just because they were fetched at build time.
+You have GitHub access via both MCP tools and the `gh` CLI. **Prefer `gh` CLI
+over MCP tools** — the MCP allowlist is scoped to this repo only, but `gh`
+(authenticated via `$GH_TOKEN`) works across all oaustegard repos:
+
+- `oaustegard/claude-workspace` (this hub)
+- `oaustegard/claude-skills`
+- `oaustegard/claude-container-layers`
+- `oaustegard/remex`
+- `oaustegard/oaustegard.github.io`
+- `oaustegard/blog-references`
+- `oaustegard/browser-extensions`
+- `oaustegard/bookmarklets`
+- `oaustegard/aeyu.io`
+- `oaustegard/muninn.austegard.com`
+
+Use `gh` for: releases, PRs, issues, file contents, repo browsing, API calls.
+Only fall back to MCP tools when operating on `claude-workspace` itself and
+the MCP tool is genuinely more convenient. When you need to fix a skill,
+update a spoke, or open a PR in another repo — do it directly. Don't treat
+skills as read-only just because they were fetched at build time.
 
 ### Cache freshness
 
