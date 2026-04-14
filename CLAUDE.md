@@ -75,6 +75,32 @@ When you need to fix a skill, update a spoke, or open a PR in another repo —
 do it directly via `gh`. Don't treat skills as read-only just because they
 were fetched at boot time.
 
+### Spoke clone convention: `.spokes/`
+
+**Always clone spoke repos to `./.spokes/<repo-name>` inside this workspace,
+not to `/home/user/` or `/tmp/`.** The directory is gitignored, so spoke
+checkouts never pollute the hub's git state.
+
+```bash
+git clone https://github.com/oaustegard/eml-sr.git .spokes/eml-sr
+cd .spokes/eml-sr
+# work normally: edit, commit, push, open PRs
+```
+
+**Why this matters.** Anthropic's container ships `/tmp/code-sign` (wired
+into git as `gpg.ssh.program`) which forwards every commit-signing request
+to a remote signing service. That service resolves its "source" field from
+the signer's cwd and only recognizes paths inside `claude-workspace`.
+Committing from a spoke clone located anywhere else fails with:
+
+```
+signing server returned status 400: {"error":{"message":"missing source"}}
+```
+
+Cloning spokes under `.spokes/` keeps the signer's cwd-walk inside
+`claude-workspace`, so signing works without per-repo `commit.gpgsign=false`
+hacks or temp-directory shuffles.
+
 ## Customizing
 
 Edit `Containerfile` to change what system packages and Python deps get installed.
