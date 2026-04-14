@@ -57,6 +57,14 @@ Other repos are **spokes** that you work in during sessions. Key spokes:
   You can (and should) open PRs here when skills need updates.
 - **`oaustegard/claude-container-layers`** — Cache storage for built layers and
   archived transcripts. Managed automatically by boot and stop hooks.
+- **`oaustegard/eml-sr`** — EML symbolic regression engine. Discovers
+  elementary formulas from (x, y) data using the single operator
+  `eml(x, y) = exp(x) − ln(y)` plus the constant `1`. Full binary tree
+  trained with Adam + tau-annealing, then snapped to a hard symbolic
+  expression. Based on Odrzywolek (2026), "All elementary functions
+  from a single operator" (arXiv:2603.21852). Note: the user (and
+  branch names) sometimes type "elm" when they mean "eml" — this is
+  the repo.
 
 **GitHub operations use `gh` CLI** (authenticated via `$GH_TOKEN`), which
 works across all oaustegard repos — hub and spokes alike. The platform's
