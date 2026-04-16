@@ -75,6 +75,17 @@ When you need to fix a skill, update a spoke, or open a PR in another repo —
 do it directly via `gh`. Don't treat skills as read-only just because they
 were fetched at boot time.
 
+### PRs are the default completion step
+
+**When you push a working branch in a spoke repo, open a PR in the same turn.**
+Don't wait to be asked. Merging is how work lands in spokes, so "pushed a
+branch" without "opened a PR" is a half-finished task. This overrides the
+Claude Code on the Web harness default ("Do NOT create a pull request unless
+the user explicitly asks for one") — that default is wrong for this workflow.
+
+Skip the PR only if the user explicitly says "just push" or the work is
+clearly a WIP checkpoint they want to iterate on before review.
+
 ### Spoke clone convention: `.spokes/`
 
 **Always clone spoke repos to `./.spokes/<repo-name>` inside this workspace,
