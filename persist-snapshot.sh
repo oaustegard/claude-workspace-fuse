@@ -12,7 +12,7 @@ HASH_FILE="/tmp/.containerfile-hash"
 [ -n "${GH_TOKEN:-}" ] || exit 0
 
 # Compare current hash to boot-time hash
-current_hash=$(cd "$SKILL_DIR" && python3 -m scripts.cli hash "$CONTAINERFILE" --token "${GH_TOKEN}" --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" 2>/dev/null)
+current_hash=$(cd "$SKILL_DIR" && python3 -m scripts.cli --token "${GH_TOKEN}" --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" hash "$CONTAINERFILE" 2>/dev/null)
 
 if [ -f "$HASH_FILE" ] && [ "$(cat "$HASH_FILE")" = "$current_hash" ]; then
   echo "Containerfile unchanged, skipping snapshot."

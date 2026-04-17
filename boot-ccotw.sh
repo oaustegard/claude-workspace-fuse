@@ -147,9 +147,10 @@ if [ -f "$CONTAINERFILE" ] && [ -f "$SKILL_DIR/scripts/containerfile.py" ]; then
         --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
         restore "$CONTAINERFILE" 2>&1
     # Record Containerfile hash at boot for change detection on session end
-    python3 -m scripts.cli hash "$CONTAINERFILE" \
+    python3 -m scripts.cli \
         --token "${GH_TOKEN:-}" \
         --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
+        hash "$CONTAINERFILE" \
         2>/dev/null > /tmp/.containerfile-hash || true
     cd - > /dev/null
 
