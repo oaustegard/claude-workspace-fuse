@@ -3,10 +3,13 @@
 # Skills are fetched fresh at session start, not cached here.
 
 # Python dependencies
-RUN uv pip install --system httpx libsql-experimental
+RUN uv pip install --system --break-system-packages httpx libsql-experimental
 
-# Mojo (via Modular's pypi package — provides `mojo` CLI, ~1.1GB)
-RUN uv pip install --system modular
+# Mojo (via Modular's pypi packages — provides `mojo` CLI, ~550MB)
+# --no-deps on `modular` skips `max-core` and ML extras (~350MB saved).
+# `mojo max` then pulls the CLI entry points + base deps (numpy, pyyaml, rich).
+RUN uv pip install --system --break-system-packages modular --no-deps
+RUN uv pip install --system --break-system-packages mojo max
 
 # GitHub CLI — direct binary (not in default apt repos)
 # Authenticated API call so the shared container IP doesn't get rate-limited.
