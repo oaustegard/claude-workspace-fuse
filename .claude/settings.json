@@ -36,17 +36,13 @@
         ]
       }
     ],
-    "SessionEnd": [
+    "FileChanged": [
       {
-        "matcher": "",
+        "matcher": "Containerfile",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ./persist-transcript.sh 2>/dev/null || true"
-          },
-          {
-            "type": "command",
-            "command": "bash ./persist-snapshot.sh 2>/dev/null || true"
+            "command": "bash ./rebuild-layer.sh || true"
           }
         ]
       }
