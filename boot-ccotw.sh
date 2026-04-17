@@ -27,6 +27,20 @@ _tmark() {
 
 # ── Functions ──
 
+_detect_containerfile_drift() {
+    local skill_dir="/tmp/_container_layer"
+    [ -f "$CONTAINERFILE" ] || return 0
+    [ -f "/tmp/.containerfile-hash" ] || return 0
+    [ -f "$skill_dir/scripts/cli.py" ] || return 0
+    local current cached
+    current=$(cd "$skill_dir" && python3 -m scripts.cli hash "$CONTAINERFILE" 2>/dev/null)
+    cached=$(cat /tmp/.containerfile-hash)
+    if [ -n "$current" ] && [ "$current" != "$cached" ]; then
+        echo "  ⚠ Containerfile drift detected — rebuilding layer in background"
+        nohup bash "$PROJECT_DIR/rebuild-layer.sh" >/dev/null 2>&1 &
+    fi
+}
+
 _wait_for_network() {
     local max_attempts=5
     local delay=2
@@ -102,6 +116,7 @@ if [ -f "$MARKER" ]; then
     echo "Environment ready (cached)."
     _source_env
     _tmark "env_source"
+    _detect_containerfile_drift
     # Skills are always fetched fresh — never rely on stale copies from a previous boot
     _wait_for_network
     _fetch_skills

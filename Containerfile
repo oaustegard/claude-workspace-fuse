@@ -1,7 +1,7 @@
 # Muninn Container Layer
 # System packages and Python deps for Claude Code on the Web
 # Skills are fetched fresh at session start, not cached here.
-# cache-bust: 2026-04-17
+# cache-bust: 2026-04-17g
 
 # Python dependencies
 RUN uv pip install --system --break-system-packages httpx libsql-experimental
