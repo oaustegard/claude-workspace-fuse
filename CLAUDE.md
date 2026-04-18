@@ -75,6 +75,42 @@ When you need to fix a skill, update a spoke, or open a PR in another repo —
 do it directly via `gh`. Don't treat skills as read-only just because they
 were fetched at boot time.
 
+### NEVER embed `$GH_TOKEN` in a URL
+
+**Do not** run `git push https://x-access-token:${GH_TOKEN}@github.com/...`
+or any variant that puts the token into a URL — git echoes the full URL to
+stdout (visible in my transcript) and `-u` persists it into `.git/config`.
+Every time I've done this the user has had to rotate the token. Stop doing it.
+
+**Instead**, when `gh` CLI is unavailable and you must push over HTTPS, use
+the one-shot credential helper — the token stays in the process environment
+and never hits stdout or disk:
+
+```bash
+git -c 'credential.helper=!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f' \
+    push origin <branch>
+```
+
+Verified in this container against `github.com/oaustegard/*`.  An
+`http.extraHeader="Authorization: Bearer $GH_TOKEN"` override by itself
+does *not* work here — git still prompts for a username and the push
+fails — so stick to the credential helper.  After pushing, confirm no
+leak with:
+
+```bash
+git config --get-regexp 'remote\.origin\..*'   # URL should have no token
+git config --get-regexp 'branch\..*\.pushRemote'  # should be empty
+```
+
+Rules:
+1. Never concatenate `$GH_TOKEN` into a URL passed to `git`, `curl`, or
+   printed in any command.
+2. Never combine `-u` / `--set-upstream` with a URL that contains a token.
+3. Before running a `git push`, mentally check: "does my command string
+   contain the literal token?" If yes, rewrite it.
+4. If a token leak happens anyway, tell the user immediately so they can
+   rotate — don't bury it.
+
 ### PRs are the default completion step
 
 **When you push a working branch in a spoke repo, open a PR in the same turn.**
