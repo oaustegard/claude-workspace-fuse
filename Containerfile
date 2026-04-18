@@ -1,7 +1,7 @@
 # Muninn Container Layer
 # System packages and Python deps for Claude Code on the Web
 # Skills are fetched fresh at session start, not cached here.
-# cache-bust: 2026-04-17g
+# cache-bust: 2026-04-18a
 
 # Python dependencies
 RUN uv pip install --system --break-system-packages httpx libsql-experimental
@@ -11,6 +11,9 @@ RUN uv pip install --system --break-system-packages httpx libsql-experimental
 # `mojo max` then pulls the CLI entry points + base deps (numpy, pyyaml, rich).
 RUN uv pip install --system --break-system-packages modular --no-deps
 RUN uv pip install --system --break-system-packages mojo max
+
+# PyTorch CPU-only (no CUDA, ~200MB vs ~2GB for GPU build)
+RUN uv pip install --system --break-system-packages torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # GitHub CLI — direct binary (not in default apt repos)
 # Authenticated API call so the shared container IP doesn't get rate-limited.
