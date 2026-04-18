@@ -1,10 +1,14 @@
 # Muninn Container Layer
 # System packages and Python deps for Claude Code on the Web
 # Skills are fetched fresh at session start, not cached here.
-# cache-bust: 2026-04-18a
+# cache-bust: 2026-04-18b
 
 # Python dependencies
 RUN uv pip install --system --break-system-packages httpx libsql-experimental
+
+# Scientific Python core — scipy/sklearn/pandas together pull ~55MB of wheels
+# and transitive deps; baking them in avoids re-downloading every session.
+RUN uv pip install --system --break-system-packages scipy scikit-learn pandas
 
 # Mojo (via Modular's pypi packages — provides `mojo` CLI, ~550MB)
 # --no-deps on `modular` skips `max-core` and ML extras (~350MB saved).
@@ -14,6 +18,14 @@ RUN uv pip install --system --break-system-packages mojo max
 
 # PyTorch CPU-only (no CUDA, ~200MB vs ~2GB for GPU build)
 RUN uv pip install --system --break-system-packages torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# PySR + Julia toolchain for symbolic-regression benchmarks (eml-sr #47).
+# Julia 1.11 segfaults on SymbolicRegression.jl precompile under gVisor
+# (kernel 4.4.0 / runsc); pin to Julia 1.10 which precompiles cleanly.
+# Total install is ~5 min on a cold cache — absolutely belongs here.
+RUN uv pip install --system --break-system-packages pysr
+RUN python3 -c "import juliapkg; juliapkg.require_julia('~1.10'); juliapkg.resolve(force=True)"
+RUN python3 -c "import pysr"  # triggers SymbolicRegression.jl precompile
 
 # GitHub CLI — direct binary (not in default apt repos)
 # Authenticated API call so the shared container IP doesn't get rate-limited.
@@ -29,5 +41,8 @@ SNAPSHOT /usr/local/bin/gh
 SNAPSHOT /usr/local/bin/mojo
 SNAPSHOT /usr/local/bin/mojo-lldb
 SNAPSHOT /usr/local/bin/mojo-lsp-server
+# Julia toolchain + precompiled SymbolicRegression.jl cache (~1GB).
+# Without this, every session pays the 5-minute Julia bootstrap.
+SNAPSHOT /root/.julia
 
 WORKDIR /home/user
