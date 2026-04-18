@@ -83,17 +83,23 @@ stdout (visible in my transcript) and `-u` persists it into `.git/config`.
 Every time I've done this the user has had to rotate the token. Stop doing it.
 
 **Instead**, when `gh` CLI is unavailable and you must push over HTTPS, use
-one of these two patterns — the token stays in the process environment and
-never hits stdout or disk:
+the one-shot credential helper — the token stays in the process environment
+and never hits stdout or disk:
 
 ```bash
-# preferred: extraHeader, single command
-git -c http.extraHeader="Authorization: Bearer $GH_TOKEN" \
+git -c 'credential.helper=!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f' \
     push origin <branch>
+```
 
-# alternative: one-shot credential helper (useful if extraHeader gets stripped)
-git -c credential.helper='!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f' \
-    push origin <branch>
+Verified in this container against `github.com/oaustegard/*`.  An
+`http.extraHeader="Authorization: Bearer $GH_TOKEN"` override by itself
+does *not* work here — git still prompts for a username and the push
+fails — so stick to the credential helper.  After pushing, confirm no
+leak with:
+
+```bash
+git config --get-regexp 'remote\.origin\..*'   # URL should have no token
+git config --get-regexp 'branch\..*\.pushRemote'  # should be empty
 ```
 
 Rules:
