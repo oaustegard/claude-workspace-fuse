@@ -7,6 +7,12 @@
 #
 # Set BOOT_TELEMETRY=1 to emit per-phase timing data.
 
+# Mirror all output to a file so the model can read the full boot
+# when Claude Code's ~2KB SessionStart preview truncates this stream.
+exec > >(tee /tmp/muninn-boot-full.md) 2>&1
+echo "⚠️ SessionStart output truncates to ~2KB in context. Full boot at /tmp/muninn-boot-full.md — Read before responding."
+echo ""
+
 set -e
 
 MARKER="/tmp/.container-layer-booted"
