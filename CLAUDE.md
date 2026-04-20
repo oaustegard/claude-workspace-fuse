@@ -148,6 +148,32 @@ Cloning spokes under `.spokes/` keeps the signer's cwd-walk inside
 `claude-workspace`, so signing works without per-repo `commit.gpgsign=false`
 hacks or temp-directory shuffles.
 
+## Uploading files
+
+CCotw has no native file mount. Whenever the user wants to share a file
+with the session, use the `uploading-files` skill — it creates a
+throwaway GitHub branch on the working repo's origin that the user can
+drop files onto via github.com's web UI, then fetches them locally.
+
+**If a session opens with just "upload" (or "uploads", "upload a file",
+or any equally bare prompt), that is the request.** Don't ask what they
+want to upload first — run the skill's `init` action and present the
+upload URL. They'll fill in context once they've dropped the file.
+
+```bash
+# 1. create the branch, get the URL
+python3 /mnt/skills/user/uploading-files/scripts/upload.py init
+# → show URL verbatim, wait for the user to upload + commit
+
+# 2. pull files into ./.uploads/
+python3 /mnt/skills/user/uploading-files/scripts/upload.py fetch
+
+# 3. when done with the files, before opening a PR
+python3 /mnt/skills/user/uploading-files/scripts/upload.py cleanup
+```
+
+Branch is deterministic per session, so re-running `init` is safe.
+
 ## Customizing
 
 Edit `Containerfile` to change what system packages and Python deps get installed.
