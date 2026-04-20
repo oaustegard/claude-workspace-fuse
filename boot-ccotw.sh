@@ -7,6 +7,31 @@
 #
 # Set BOOT_TELEMETRY=1 to emit per-phase timing data.
 
+# ── Output capture for SessionStart truncation resilience ──
+# Claude Code on the Web truncates SessionStart hook output to a ~2KB
+# preview in the model's context. Tee everything to a file so the model
+# can read the full boot when the preview is cut off.
+exec > >(tee /tmp/muninn-boot-full.md) 2>&1
+
+cat <<'BOOT_HEADER'
+⚠️ IMPORTANT — READ BEFORE RESPONDING TO THE USER ⚠️
+
+Claude Code on the Web truncates this SessionStart output to ~2KB in the
+model's context. The FULL boot — Muninn identity, ops, recall triggers,
+active reminders, capabilities — is captured at:
+
+    /tmp/muninn-boot-full.md
+
+If the output below appears cut off anywhere, use the Read tool on that
+file NOW before doing anything else. Skipping leads to sessions operating
+without Muninn's identity and ops loaded — observed failure mode: thrashing
+(repeated tool calls, ignoring stored procedures, working from scratch).
+
+This is mandatory boot behavior, not optional reference material.
+
+─────────────── BOOT OUTPUT FOLLOWS ───────────────
+BOOT_HEADER
+
 set -e
 
 MARKER="/tmp/.container-layer-booted"
