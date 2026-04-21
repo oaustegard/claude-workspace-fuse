@@ -174,6 +174,40 @@ python3 /mnt/skills/user/uploading-files/scripts/upload.py cleanup
 
 Branch is deterministic per session, so re-running `init` is safe.
 
+## Reading code: prefer tree-sitter for navigation
+
+The `Read` tool caps at ~25,000 tokens per call (the schema says "up
+to 2000 lines" but the token limit hits first on real code — usually
+around 500–800 lines). That's fine for configs, small files, and
+cases where the exact location is already known. For exploring code
+or finding the line range to edit, reach for the `tree-sitting` skill
+first. It parses the whole repo once (~700ms), then answers symbol
+lookups in sub-millisecond time and returns exact line ranges — so
+you load only the window you actually need, not whatever chunk `Read`
+happens to fit under its token cap.
+
+```bash
+TREESIT=/mnt/skills/user/tree-sitting/scripts/treesit.py
+PY=/home/claude/.venv/bin/python
+
+# Orient in an unfamiliar repo
+$PY $TREESIT /path/to/repo
+
+# Find a symbol and read its source directly
+$PY $TREESIT /path/to/repo 'find:parse_input' 'source:parse_input'
+
+# Find references before editing
+$PY $TREESIT /path/to/repo 'refs:AuthToken'
+```
+
+Typical flow: `tree overview → find:Symbol → source:Symbol` (which
+prints the code plus line range). If that's enough context, skip
+`Read` entirely. If you need surrounding context for an `Edit`, use
+`Read` with `offset`/`limit` scoped to that range instead of a full
+re-read.
+
+See `/mnt/skills/user/tree-sitting/SKILL.md` for the full query reference.
+
 ## Customizing
 
 Edit `Containerfile` to change what system packages and Python deps get installed.
