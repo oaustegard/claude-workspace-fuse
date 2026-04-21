@@ -176,13 +176,15 @@ Branch is deterministic per session, so re-running `init` is safe.
 
 ## Reading code: prefer tree-sitter for navigation
 
-The `Read` tool pulls up to 2000 lines at a time — fine for configs,
-small files, and cases where the exact location is already known. For
-exploring code or finding the line range to edit, reach for the
-`tree-sitting` skill first. It parses the whole repo once (~700ms),
-then answers symbol lookups in sub-millisecond time and returns exact
-line ranges — so you load only the window you actually need, not a
-2000-line chunk of noise.
+The `Read` tool caps at ~25,000 tokens per call (the schema says "up
+to 2000 lines" but the token limit hits first on real code — usually
+around 500–800 lines). That's fine for configs, small files, and
+cases where the exact location is already known. For exploring code
+or finding the line range to edit, reach for the `tree-sitting` skill
+first. It parses the whole repo once (~700ms), then answers symbol
+lookups in sub-millisecond time and returns exact line ranges — so
+you load only the window you actually need, not whatever chunk `Read`
+happens to fit under its token cap.
 
 ```bash
 TREESIT=/mnt/skills/user/tree-sitting/scripts/treesit.py
