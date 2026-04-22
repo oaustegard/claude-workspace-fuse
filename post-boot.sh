@@ -12,5 +12,10 @@ if [ "${BOOT_TELEMETRY:-0}" = "1" ]; then
     TELEMETRY_ARG="telemetry=True"
 fi
 
-python3 -c "from scripts import boot; print(boot($TELEMETRY_ARG))" 2>&1 || \
-python3 -c "from scripts import boot; print(boot())"
+# Stderr goes to a log file so retry tracebacks don't pollute Claude's
+# context window. If both attempts fail, surface the log so failures stay
+# visible.
+ERR_LOG=/tmp/muninn-boot-stderr.log
+python3 -c "from scripts import boot; print(boot($TELEMETRY_ARG))" 2>"$ERR_LOG" \
+    || python3 -c "from scripts import boot; print(boot())" 2>"$ERR_LOG" \
+    || cat "$ERR_LOG"
