@@ -92,6 +92,12 @@ _setup_python_paths() {
 }
 
 _output_skills() {
+    # Emit names only — full descriptions live on disk at
+    # $skill/SKILL.md and are loaded on demand via the finding-skills
+    # meta-skill. This keeps the skills block under ~1.5KB instead of
+    # the ~35KB that a descriptions dump would cost every session, which
+    # is important because Claude Code's SessionStart hook truncates
+    # stdout to a ~2KB preview.
     [ -d "$SKILLS_DIR" ] || return 0
     echo ""
     echo "<available_skills source=\"$SKILLS_DIR\">"
@@ -99,11 +105,13 @@ _output_skills() {
         local skill_file="${skill_dir}SKILL.md"
         if [ -f "$skill_file" ]; then
             local name=$(grep -m1 "^name:" "$skill_file" | sed 's/name: *//')
-            local desc=$(grep -m1 "^description:" "$skill_file" | sed 's/description: *//')
-            [ -n "$name" ] && echo "<skill><n>$name</n><description>$desc</description><location>${skill_file}</location></skill>"
+            [ -n "$name" ] && echo "<skill>$name</skill>"
         fi
     done
     echo "</available_skills>"
+    echo "Use finding-skills to search descriptions or load a specific SKILL.md:"
+    echo "  python3 $SKILLS_DIR/finding-skills/scripts/skills.py search <query>"
+    echo "  python3 $SKILLS_DIR/finding-skills/scripts/skills.py show <name>"
 }
 
 _source_env() {
