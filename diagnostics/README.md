@@ -86,9 +86,11 @@ Each run creates `diagnostics/runs/<UTC-timestamp>/` containing:
 - `summary.md` — per-host outcome table, DNS-cache signature matches,
   worst non-OK samples, and a paste-ready bug-report copy block
 
-The `runs/` directory is **not** gitignored — small evidence drops are
-fine to commit. If you collect a very large run, attach the file to the
-bug report instead of committing it.
+The `runs/` directory is **gitignored** — runs are session-specific
+artifacts meant to be attached to a bug report, not committed. If a
+particular run is worth preserving in the repo (e.g. the one quoted in
+the eventual issue), force-add it with `git add -f
+diagnostics/runs/<ts>`.
 
 ## Filing the bug report
 
