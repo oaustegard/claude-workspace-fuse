@@ -1,7 +1,7 @@
 # Muninn Container Layer
 # System packages and Python deps for Claude Code on the Web
 # Skills are fetched fresh at session start, not cached here.
-# cache-bust: 2026-04-18b
+# cache-bust: 2026-04-26
 
 # Python dependencies
 RUN uv pip install --system --break-system-packages httpx libsql-experimental
@@ -18,6 +18,12 @@ RUN uv pip install --system --break-system-packages mojo max
 
 # PyTorch CPU-only (no CUDA, ~200MB vs ~2GB for GPU build)
 RUN uv pip install --system --break-system-packages torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# tree-sitter for codebase-exploration skills (exploring-codebases, tree-sitting).
+# Pin to <1.6.3 — that wheel is broken (ships only _native/, missing the
+# tree_sitter_language_pack/ python module → ModuleNotFoundError on import).
+# Pulls in tree-sitter as a transitive dep, so no separate install needed.
+RUN uv pip install --system --break-system-packages 'tree-sitter-language-pack<1.6.3'
 
 # PySR + Julia toolchain for symbolic-regression benchmarks (eml-sr #47).
 # Julia 1.11 segfaults on SymbolicRegression.jl precompile under gVisor
