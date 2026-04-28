@@ -46,6 +46,17 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./pre-compact-flush.py 2>/dev/null || true"
+          }
+        ]
+      }
     ]
   }
 }
