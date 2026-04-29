@@ -21,6 +21,12 @@ SESSION_ID=$(basename "$TRANSCRIPT" .jsonl)
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 ARCHIVE="/tmp/_transcript_${SESSION_ID}.tar.gz"
 
+# Semantic title written by the UserPromptSubmit hook (derive-session-title.py)
+TITLE_FILE="/tmp/.session-title-${SESSION_ID}"
+if [ -r "$TITLE_FILE" ]; then
+  SESSION_TITLE=$(tr -cd 'a-z0-9-' < "$TITLE_FILE" | head -c 60)
+fi
+
 # Tar just this session's transcript
 tar -czf "$ARCHIVE" -C "$(dirname "$TRANSCRIPT")" "$(basename "$TRANSCRIPT")" 2>/dev/null
 
@@ -56,9 +62,15 @@ _upload_asset() {
 }
 
 # ── Per-session archive ──
-TAG="transcript-${TIMESTAMP}-${SESSION_ID:0:8}"
-RELEASE=$(_gh_api POST "/repos/$REPO/releases" \
-  "{\"tag_name\":\"$TAG\",\"name\":\"Session $TIMESTAMP\",\"body\":\"Auto-archived session transcript.\",\"prerelease\":true}")
+if [ -n "$SESSION_TITLE" ]; then
+  TAG="transcript-${TIMESTAMP}-${SESSION_TITLE}"
+  RELEASE_NAME="${TIMESTAMP} — ${SESSION_TITLE}"
+else
+  TAG="transcript-${TIMESTAMP}-${SESSION_ID:0:8}"
+  RELEASE_NAME="Session $TIMESTAMP"
+fi
+RELEASE_BODY=$(python3 -c "import json,sys; print(json.dumps({'tag_name':sys.argv[1],'name':sys.argv[2],'body':f'Auto-archived session transcript.\nSession ID: {sys.argv[3]}','prerelease':True}))" "$TAG" "$RELEASE_NAME" "$SESSION_ID")
+RELEASE=$(_gh_api POST "/repos/$REPO/releases" "$RELEASE_BODY")
 
 if [ -n "$RELEASE" ]; then
   UPLOAD_URL=$(echo "$RELEASE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('upload_url',''))" 2>/dev/null)
@@ -80,5 +92,5 @@ if [ -n "$LATEST" ]; then
   [ -n "$UPLOAD_URL" ] && _upload_asset "$UPLOAD_URL" "$LATEST_ARCHIVE" "transcripts.tar.gz"
 fi
 
-rm -f "$ARCHIVE" "$LATEST_ARCHIVE"
+rm -f "$ARCHIVE" "$LATEST_ARCHIVE" "$TITLE_FILE" "${TITLE_FILE}.set"
 exit 0
