@@ -1,6 +1,16 @@
 #!/bin/bash
 # Rebuild and upload the container layer cache.
-# Triggered by FileChanged hook on Containerfile, or run manually.
+# Triggered by PostToolUse hook on Containerfile edits, or by SessionStart
+# drift detection. Run manually for ad-hoc rebuilds.
+#
+# Emits structured one-line status events to stdout (tee'd to a log file)
+# so the Monitor tool can stream progress as session notifications:
+#   START containerfile=<path>
+#   BOOTSTRAP                 (only if container-layer skill missing)
+#   RESTORE repo=<owner/name>
+#   DONE hash=<sha>
+#   FAIL reason=<short-tag>
+#   SKIP reason=<short-tag>
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
 CONTAINERFILE="$(cd "$PROJECT_DIR" && pwd)/Containerfile"
@@ -8,37 +18,53 @@ SKILL_DIR="/tmp/_container_layer"
 HASH_FILE="/tmp/.containerfile-hash"
 LOG="/tmp/.rebuild-layer.log"
 
-exec > "$LOG" 2>&1
+# Tee stdout to the log: Monitor tails the log while a persistent record
+# survives for next-session diagnosis.
+exec > >(tee -a "$LOG") 2>&1
+
+_emit() { printf '%s\n' "$*"; }
+_fail() { _emit "FAIL reason=$*"; trap - EXIT; exit 1; }
+# Catch unexpected exits (set -e tripping, segfault, killed) so silence
+# never means success.
+trap '[ "$?" -eq 0 ] || _emit "FAIL reason=unexpected-exit"' EXIT
+
+_emit "START containerfile=$CONTAINERFILE"
 
 for envfile in "$PROJECT_DIR"/.env "$PROJECT_DIR"/*.env /mnt/project/*.env; do
     [ -f "$envfile" ] && { set -a; . "$envfile" 2>/dev/null; set +a; } || true
 done
 
-[ -n "${GH_TOKEN:-}" ] || { echo "No GH_TOKEN — skipping rebuild"; exit 0; }
-[ -f "$CONTAINERFILE" ] || { echo "No Containerfile at $CONTAINERFILE"; exit 1; }
+if [ -z "${GH_TOKEN:-}" ]; then
+    _emit "SKIP reason=no-gh-token"
+    trap - EXIT
+    exit 0
+fi
+[ -f "$CONTAINERFILE" ] || _fail "no-containerfile"
 
-# Bootstrap skill if not present
 if [ ! -f "$SKILL_DIR/scripts/containerfile.py" ]; then
-    echo "Bootstrapping container-layer skill..."
+    _emit "BOOTSTRAP"
     mkdir -p "$SKILL_DIR"
     curl -sL "https://codeload.github.com/oaustegard/claude-skills/tar.gz/main" \
         | tar -xz --strip-components=2 -C "$SKILL_DIR" "claude-skills-main/container-layer/" 2>/dev/null \
-        || { echo "Bootstrap failed"; exit 1; }
+        || _fail "bootstrap"
 fi
 
-echo "Rebuilding layer from $CONTAINERFILE..."
+REPO="${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}"
+_emit "RESTORE repo=$REPO"
+
 cd "$SKILL_DIR"
 python3 -m scripts.cli \
     --token "${GH_TOKEN}" \
-    --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
-    restore "$CONTAINERFILE"
+    --repo "$REPO" \
+    restore "$CONTAINERFILE" || _fail "restore"
 
 # Update hash file so subsequent triggers are no-ops until next change
-python3 -m scripts.cli \
+new_hash=$(python3 -m scripts.cli \
     --token "${GH_TOKEN}" \
-    --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
-    hash "$CONTAINERFILE" \
-    2>/dev/null > "$HASH_FILE" || true
+    --repo "$REPO" \
+    hash "$CONTAINERFILE" 2>/dev/null) || true
+[ -n "$new_hash" ] && echo "$new_hash" > "$HASH_FILE"
 
 touch /tmp/.container-layer-booted
-echo "✓ Layer rebuilt and cached"
+_emit "DONE hash=${new_hash:-unknown}"
+trap - EXIT

@@ -43,7 +43,28 @@ _detect_containerfile_drift() {
     cached=$(cat /tmp/.containerfile-hash)
     if [ -n "$current" ] && [ "$current" != "$cached" ]; then
         echo "  ⚠ Containerfile drift detected — rebuilding layer in background"
-        nohup bash "$PROJECT_DIR/rebuild-layer.sh" >/dev/null 2>&1 &
+        # Truncate prior log so Monitor only sees this run's events.
+        : > /tmp/.rebuild-layer.log
+        nohup bash "$PROJECT_DIR/rebuild-layer.sh" </dev/null >>/tmp/.rebuild-layer.log 2>&1 &
+        local rebuild_pid=$!
+        # Directive for the model: arm the Monitor tool against the rebuild
+        # log. --pid makes tail exit when the rebuild process dies, so the
+        # monitor terminates naturally instead of running until timeout.
+        cat <<EOF
+
+<rebuild-monitor-directive pid="$rebuild_pid" log="/tmp/.rebuild-layer.log">
+Background container-layer rebuild started. Arm the Monitor tool now so
+START / BOOTSTRAP / RESTORE / DONE / FAIL events surface as session
+notifications instead of disappearing into the log:
+
+  Monitor(
+    description="container layer rebuild",
+    timeout_ms=600000,
+    persistent=false,
+    command="tail -n +1 -f --pid=$rebuild_pid /tmp/.rebuild-layer.log 2>/dev/null"
+  )
+</rebuild-monitor-directive>
+EOF
     fi
 }
 
