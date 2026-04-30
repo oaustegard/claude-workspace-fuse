@@ -62,6 +62,15 @@
             "command": "nohup bash ./rebuild-layer.sh >/dev/null 2>&1 & true"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./scripts/trim-tool-output.py 2>/dev/null || true"
+          }
+        ]
       }
     ],
     "PreCompact": [
