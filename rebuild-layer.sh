@@ -17,6 +17,7 @@ CONTAINERFILE="$(cd "$PROJECT_DIR" && pwd)/Containerfile"
 SKILL_DIR="/tmp/_container_layer"
 HASH_FILE="/tmp/.containerfile-hash"
 LOG="/tmp/.rebuild-layer.log"
+LOCK="/tmp/.rebuild-layer.lock"
 
 # Tee stdout to the log: Monitor tails the log while a persistent record
 # survives for next-session diagnosis.
@@ -24,6 +25,16 @@ exec > >(tee -a "$LOG") 2>&1
 
 _emit() { printf '%s\n' "$*"; }
 _fail() { _emit "FAIL reason=$*"; trap - EXIT; exit 1; }
+
+# Single-flight: SessionStart drift-detect and PostToolUse(Containerfile)
+# can both fire on the same session boot. Without a lock, two rebuilds
+# race, both append to $LOG, and tracebacks interleave character-by-character.
+exec 9>"$LOCK"
+if ! flock -n 9; then
+    _emit "SKIP reason=already-running"
+    exit 0
+fi
+
 # Catch unexpected exits (set -e tripping, segfault, killed) so silence
 # never means success.
 trap '[ "$?" -eq 0 ] || _emit "FAIL reason=unexpected-exit"' EXIT
