@@ -5,7 +5,8 @@
 # Ephemeral containers: restores cached layer, fetches fresh skills, boots Muninn.
 # Idempotent within a session via marker file.
 #
-# Set BOOT_TELEMETRY=1 to emit per-phase timing data.
+# Per-phase timings are always emitted via _tmark. Set BOOT_TELEMETRY=1 to also
+# enable the python-side boot() telemetry in post-boot.sh.
 
 # Mirror all output to a file so the model can read the full boot
 # when Claude Code's ~2KB SessionStart preview truncates this stream.
@@ -20,15 +21,21 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
 CONTAINERFILE="$(cd "$PROJECT_DIR" && pwd)/Containerfile"
 SKILLS_DIR="/mnt/skills/user"
 
-# ── Telemetry ──
-
-_BOOT_T0=""
-if [ "${BOOT_TELEMETRY:-0}" = "1" ]; then
-    _BOOT_T0=$(date +%s%3N)
-fi
+# ── Clock ──
+# _BOOT_T0  = epoch ms at boot start (for cumulative TOTAL)
+# _LAST_MARK = epoch ms at last _tmark (for per-phase deltas)
+_BOOT_T0=$(date +%s%3N)
+_LAST_MARK=$_BOOT_T0
 
 _tmark() {
-    [ -n "$_BOOT_T0" ] && echo "⏱ bash:$1 $(($(date +%s%3N) - _BOOT_T0))ms"
+    local now=$(date +%s%3N)
+    local elapsed=$((now - _LAST_MARK))
+    echo "⏱ bash:$1 ${elapsed}ms"
+    _LAST_MARK=$now
+}
+
+_ttotal() {
+    echo "⏱ bash:TOTAL $(($(date +%s%3N) - _BOOT_T0))ms"
 }
 
 # ── Functions ──
@@ -140,15 +147,20 @@ if [ -f "$MARKER" ]; then
     _source_env
     _tmark "env_source"
     _detect_containerfile_drift
+    _tmark "drift_check"
     # Skills are always fetched fresh — never rely on stale copies from a previous boot
     _wait_for_network
+    _tmark "network_wait"
     _fetch_skills
-    _setup_python_paths
     _tmark "skills_fetch"
+    _setup_python_paths
+    _tmark "python_paths"
     _output_skills
+    _tmark "skills_list"
     # Still run post-boot hook — identity must load every session, not just first boot
     [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
     _tmark "post_boot"
+    _ttotal
     exit 0
 fi
 
@@ -201,8 +213,9 @@ _tmark "container_layer"
 # Fetch skills fresh (always, not from container cache)
 echo "Fetching skills..."
 _fetch_skills
-_setup_python_paths
 _tmark "skills_fetch"
+_setup_python_paths
+_tmark "python_paths"
 
 touch "$MARKER"
 _output_skills
@@ -211,5 +224,6 @@ _tmark "skills_list"
 # Custom post-boot hook
 [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
 _tmark "post_boot"
+_ttotal
 
 exit 0
