@@ -1,7 +1,7 @@
 # Muninn Container Layer
 # System packages and Python deps for Claude Code on the Web
 # Skills are fetched fresh at session start, not cached here.
-# cache-bust: 2026-04-26
+# cache-bust: 2026-05-07
 
 # Python dependencies
 RUN uv pip install --system --break-system-packages httpx libsql-experimental
@@ -11,10 +11,13 @@ RUN uv pip install --system --break-system-packages httpx libsql-experimental
 RUN uv pip install --system --break-system-packages scipy scikit-learn pandas
 
 # Mojo (via Modular's pypi packages — provides `mojo` CLI, ~550MB)
+# Mojo 1.0.0b1 is a prerelease, so versions are pinned explicitly and
+# --prerelease=allow is required for uv to resolve the transitive
+# mojo-compiler==1.0.0b1 / mojo-lldb-libs==1.0.0b1 deps.
 # --no-deps on `modular` skips `max-core` and ML extras (~350MB saved).
 # `mojo max` then pulls the CLI entry points + base deps (numpy, pyyaml, rich).
-RUN uv pip install --system --break-system-packages modular --no-deps
-RUN uv pip install --system --break-system-packages mojo max
+RUN uv pip install --system --break-system-packages modular==26.3.0 --no-deps
+RUN uv pip install --system --break-system-packages --prerelease=allow mojo==1.0.0b1 max==26.3.0
 
 # PyTorch CPU-only (no CUDA, ~200MB vs ~2GB for GPU build)
 RUN uv pip install --system --break-system-packages torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
