@@ -107,6 +107,52 @@ _setup_python_paths() {
     echo "$(python3 -c 'import os; print(os.path.expanduser("~"))')" >> "$pth_file"
 }
 
+_fetch_muninn_utils() {
+    # Pull canonical muninn_utils/*.py from the mac repo into ~/muninn_utils/.
+    # Runs AFTER post-boot.sh so disk files override any Turso-materialized
+    # copies for utilities already migrated (per memory 0d63ed4f). Utilities
+    # not yet migrated still get materialized from Turso `utility-code`
+    # memories — those continue to work as fallback.
+    [ -n "${GH_TOKEN:-}" ] || { echo "  ⓘ muninn_utils sync skipped (no GH_TOKEN)"; return 0; }
+    local repo="oaustegard/muninn.austegard.com"
+    local home_dir
+    home_dir=$(python3 -c 'import os; print(os.path.expanduser("~"))')
+    local util_dir="${MUNINN_UTIL_DIR:-$home_dir/muninn_utils}"
+    mkdir -p "$util_dir"
+    [ -f "$util_dir/__init__.py" ] || touch "$util_dir/__init__.py"
+
+    local names
+    names=$(curl -sfL \
+        -H "Authorization: Bearer $GH_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/$repo/contents/muninn_utils?ref=main" 2>/dev/null \
+        | jq -r '.[] | select(.type=="file" and (.name | endswith(".py"))) | .name' 2>/dev/null)
+    if [ -z "$names" ]; then
+        echo "  ✗ muninn_utils listing failed (auth or network)"
+        return 0
+    fi
+
+    local ok=0 fail=0 name
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
+        if curl -sfL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/$repo/contents/muninn_utils/$name?ref=main" \
+            -o "$util_dir/$name" 2>/dev/null; then
+            ok=$((ok + 1))
+        else
+            fail=$((fail + 1))
+        fi
+    done <<< "$names"
+
+    if [ "$fail" -gt 0 ]; then
+        echo "  ⚠ muninn_utils sync: $ok ok, $fail failed"
+    else
+        echo "  ✓ muninn_utils synced from mac ($ok files)"
+    fi
+}
+
 _run_smoke_test_background() {
     # Fire smoke_test.py in the background after the container layer is
     # restored and skills are fetched. Failures land in /tmp/.smoke-failures
@@ -173,6 +219,9 @@ if [ -f "$MARKER" ]; then
     # Still run post-boot hook — identity must load every session, not just first boot
     [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
     _tmark "post_boot"
+    # mac muninn_utils overrides Turso materialization for migrated files
+    _fetch_muninn_utils
+    _tmark "muninn_utils"
     _ttotal
     exit 0
 fi
@@ -238,6 +287,9 @@ _run_smoke_test_background
 # Custom post-boot hook
 [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
 _tmark "post_boot"
+# mac muninn_utils overrides Turso materialization for migrated files
+_fetch_muninn_utils
+_tmark "muninn_utils"
 _ttotal
 
 exit 0
