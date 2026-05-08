@@ -107,50 +107,62 @@ _setup_python_paths() {
     echo "$(python3 -c 'import os; print(os.path.expanduser("~"))')" >> "$pth_file"
 }
 
-_fetch_muninn_utils() {
-    # Pull canonical muninn_utils/ from oaustegard/muninn-utilities into
-    # ~/muninn_utils/. Runs AFTER post-boot.sh so disk files override any
-    # Turso-materialized copies for utilities already migrated (per memory
-    # 0d63ed4f). Utilities not yet migrated still get materialized from Turso
-    # `utility-code` memories — those continue to work as fallback.
+_fetch_muninn_utilities() {
+    # Pull canonical muninn-utilities — installs `remembering/` to
+    # $SKILLS_DIR/remembering/ (overriding the deprecated mirror that
+    # claude-skills still ships) and `muninn_utils/*.py` to ~/muninn_utils/.
+    #
+    # Must run AFTER _fetch_skills so the muninn-utilities copy wins over the
+    # claude-skills mirror. Must run BEFORE post-boot.sh so boot() loads from
+    # the canonical source.
     #
     # The repo is public, so no GH_TOKEN required.
-    local repo="${MUNINN_UTILS_REPO:-oaustegard/muninn-utilities}"
-    local branch="${MUNINN_UTILS_BRANCH:-main}"
+    local repo="${MUNINN_UTILITIES_REPO:-oaustegard/muninn-utilities}"
+    local branch="${MUNINN_UTILITIES_BRANCH:-main}"
     local home_dir
     home_dir=$(python3 -c 'import os; print(os.path.expanduser("~"))')
     local util_dir="${MUNINN_UTIL_DIR:-$home_dir/muninn_utils}"
-    mkdir -p "$util_dir"
-
     local stage="/tmp/.muninn-utilities-stage"
+
     rm -rf "$stage" && mkdir -p "$stage"
     if ! curl -sfL "https://codeload.github.com/$repo/tar.gz/$branch" -o "$stage/repo.tar.gz" 2>/dev/null; then
-        echo "  ✗ muninn_utils fetch failed (network or repo unavailable)"
+        echo "  ✗ muninn-utilities fetch failed (network)"
         rm -rf "$stage"
         return 0
     fi
-    # Extract just muninn_utils/*.py — skip tests/, README, etc.
-    if ! tar -xzf "$stage/repo.tar.gz" -C "$stage" --wildcards '*/muninn_utils/*.py' 2>/dev/null; then
-        echo "  ✗ muninn_utils extract failed"
+    if ! tar -xzf "$stage/repo.tar.gz" -C "$stage" 2>/dev/null; then
+        echo "  ✗ muninn-utilities extract failed"
         rm -rf "$stage"
         return 0
     fi
     local src
-    src=$(find "$stage" -type d -name muninn_utils -not -path '*/tests*' | head -1)
+    src=$(find "$stage" -maxdepth 1 -type d -name 'muninn-utilities-*' | head -1)
     if [ -z "$src" ]; then
-        echo "  ✗ muninn_utils dir not found in tarball"
+        echo "  ✗ muninn-utilities top-dir missing in tarball"
         rm -rf "$stage"
         return 0
     fi
-    # Copy *.py at the top level only (exclude tests/ subdir)
-    local count=0
-    for f in "$src"/*.py; do
-        [ -f "$f" ] || continue
-        cp "$f" "$util_dir/" && count=$((count + 1))
-    done
-    [ -f "$util_dir/__init__.py" ] || touch "$util_dir/__init__.py"
+
+    # remembering/ → $SKILLS_DIR/remembering/  (overrides claude-skills mirror)
+    if [ -d "$src/remembering" ] && [ -d "$SKILLS_DIR" ]; then
+        rm -rf "$SKILLS_DIR/remembering"
+        cp -r "$src/remembering" "$SKILLS_DIR/remembering"
+        echo "  ✓ remembering installed from muninn-utilities"
+    fi
+
+    # muninn_utils/*.py → ~/muninn_utils/  (skip tests/ subdir)
+    if [ -d "$src/muninn_utils" ]; then
+        mkdir -p "$util_dir"
+        local count=0
+        for f in "$src/muninn_utils"/*.py; do
+            [ -f "$f" ] || continue
+            cp "$f" "$util_dir/" && count=$((count + 1))
+        done
+        [ -f "$util_dir/__init__.py" ] || touch "$util_dir/__init__.py"
+        echo "  ✓ muninn_utils installed from muninn-utilities ($count files)"
+    fi
+
     rm -rf "$stage"
-    echo "  ✓ muninn_utils synced from $repo ($count files)"
 }
 
 _run_smoke_test_background() {
@@ -211,6 +223,9 @@ if [ -f "$MARKER" ]; then
     _tmark "network_wait"
     _fetch_skills
     _tmark "skills_fetch"
+    # muninn-utilities overlays remembering/ + installs muninn_utils/ before boot
+    _fetch_muninn_utilities
+    _tmark "muninn_utilities"
     _setup_python_paths
     _tmark "python_paths"
     _output_skills
@@ -219,9 +234,6 @@ if [ -f "$MARKER" ]; then
     # Still run post-boot hook — identity must load every session, not just first boot
     [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
     _tmark "post_boot"
-    # mac muninn_utils overrides Turso materialization for migrated files
-    _fetch_muninn_utils
-    _tmark "muninn_utils"
     _ttotal
     exit 0
 fi
@@ -276,6 +288,9 @@ _tmark "container_layer"
 echo "Fetching skills..."
 _fetch_skills
 _tmark "skills_fetch"
+# muninn-utilities overlays remembering/ + installs muninn_utils/ before boot
+_fetch_muninn_utilities
+_tmark "muninn_utilities"
 _setup_python_paths
 _tmark "python_paths"
 
@@ -287,9 +302,6 @@ _run_smoke_test_background
 # Custom post-boot hook
 [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
 _tmark "post_boot"
-# mac muninn_utils overrides Turso materialization for migrated files
-_fetch_muninn_utils
-_tmark "muninn_utils"
 _ttotal
 
 exit 0
