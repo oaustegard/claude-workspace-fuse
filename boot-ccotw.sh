@@ -107,6 +107,18 @@ _setup_python_paths() {
     echo "$(python3 -c 'import os; print(os.path.expanduser("~"))')" >> "$pth_file"
 }
 
+_run_smoke_test_background() {
+    # Fire smoke_test.py in the background after the container layer is
+    # restored and skills are fetched. Failures land in /tmp/.smoke-failures
+    # and are surfaced to the next user prompt by scripts/smoke-status.sh.
+    # Skipped if the script or flowing skill is missing — those failures will
+    # show up at session start in other ways.
+    local smoke="$PROJECT_DIR/scripts/smoke_test.py"
+    [ -f "$smoke" ] || return 0
+    [ -f "$SKILLS_DIR/flowing/scripts/flowing.py" ] || return 0
+    nohup python3 "$smoke" </dev/null >/tmp/.smoke-test.log 2>&1 &
+}
+
 _output_skills() {
     # Emit names only — full descriptions live on disk at
     # $skill/SKILL.md and are loaded on demand via the finding-skills
@@ -157,6 +169,7 @@ if [ -f "$MARKER" ]; then
     _tmark "python_paths"
     _output_skills
     _tmark "skills_list"
+    _run_smoke_test_background
     # Still run post-boot hook — identity must load every session, not just first boot
     [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
     _tmark "post_boot"
@@ -220,6 +233,7 @@ _tmark "python_paths"
 touch "$MARKER"
 _output_skills
 _tmark "skills_list"
+_run_smoke_test_background
 
 # Custom post-boot hook
 [ -f "$PROJECT_DIR/post-boot.sh" ] && bash "$PROJECT_DIR/post-boot.sh" 2>&1
