@@ -108,49 +108,49 @@ _setup_python_paths() {
 }
 
 _fetch_muninn_utils() {
-    # Pull canonical muninn_utils/*.py from the mac repo into ~/muninn_utils/.
-    # Runs AFTER post-boot.sh so disk files override any Turso-materialized
-    # copies for utilities already migrated (per memory 0d63ed4f). Utilities
-    # not yet migrated still get materialized from Turso `utility-code`
-    # memories — those continue to work as fallback.
-    [ -n "${GH_TOKEN:-}" ] || { echo "  ⓘ muninn_utils sync skipped (no GH_TOKEN)"; return 0; }
-    local repo="oaustegard/muninn.austegard.com"
+    # Pull canonical muninn_utils/ from oaustegard/muninn-utilities into
+    # ~/muninn_utils/. Runs AFTER post-boot.sh so disk files override any
+    # Turso-materialized copies for utilities already migrated (per memory
+    # 0d63ed4f). Utilities not yet migrated still get materialized from Turso
+    # `utility-code` memories — those continue to work as fallback.
+    #
+    # The repo is public, so no GH_TOKEN required.
+    local repo="${MUNINN_UTILS_REPO:-oaustegard/muninn-utilities}"
+    local branch="${MUNINN_UTILS_BRANCH:-main}"
     local home_dir
     home_dir=$(python3 -c 'import os; print(os.path.expanduser("~"))')
     local util_dir="${MUNINN_UTIL_DIR:-$home_dir/muninn_utils}"
     mkdir -p "$util_dir"
-    [ -f "$util_dir/__init__.py" ] || touch "$util_dir/__init__.py"
 
-    local names
-    names=$(curl -sfL \
-        -H "Authorization: Bearer $GH_TOKEN" \
-        -H "Accept: application/vnd.github+json" \
-        "https://api.github.com/repos/$repo/contents/muninn_utils?ref=main" 2>/dev/null \
-        | jq -r '.[] | select(.type=="file" and (.name | endswith(".py"))) | .name' 2>/dev/null)
-    if [ -z "$names" ]; then
-        echo "  ✗ muninn_utils listing failed (auth or network)"
+    local stage="/tmp/.muninn-utilities-stage"
+    rm -rf "$stage" && mkdir -p "$stage"
+    if ! curl -sfL "https://codeload.github.com/$repo/tar.gz/$branch" -o "$stage/repo.tar.gz" 2>/dev/null; then
+        echo "  ✗ muninn_utils fetch failed (network or repo unavailable)"
+        rm -rf "$stage"
         return 0
     fi
-
-    local ok=0 fail=0 name
-    while IFS= read -r name; do
-        [ -z "$name" ] && continue
-        if curl -sfL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github.raw" \
-            "https://api.github.com/repos/$repo/contents/muninn_utils/$name?ref=main" \
-            -o "$util_dir/$name" 2>/dev/null; then
-            ok=$((ok + 1))
-        else
-            fail=$((fail + 1))
-        fi
-    done <<< "$names"
-
-    if [ "$fail" -gt 0 ]; then
-        echo "  ⚠ muninn_utils sync: $ok ok, $fail failed"
-    else
-        echo "  ✓ muninn_utils synced from mac ($ok files)"
+    # Extract just muninn_utils/*.py — skip tests/, README, etc.
+    if ! tar -xzf "$stage/repo.tar.gz" -C "$stage" --wildcards '*/muninn_utils/*.py' 2>/dev/null; then
+        echo "  ✗ muninn_utils extract failed"
+        rm -rf "$stage"
+        return 0
     fi
+    local src
+    src=$(find "$stage" -type d -name muninn_utils -not -path '*/tests*' | head -1)
+    if [ -z "$src" ]; then
+        echo "  ✗ muninn_utils dir not found in tarball"
+        rm -rf "$stage"
+        return 0
+    fi
+    # Copy *.py at the top level only (exclude tests/ subdir)
+    local count=0
+    for f in "$src"/*.py; do
+        [ -f "$f" ] || continue
+        cp "$f" "$util_dir/" && count=$((count + 1))
+    done
+    [ -f "$util_dir/__init__.py" ] || touch "$util_dir/__init__.py"
+    rm -rf "$stage"
+    echo "  ✓ muninn_utils synced from $repo ($count files)"
 }
 
 _run_smoke_test_background() {

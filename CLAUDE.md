@@ -11,35 +11,33 @@ The `SessionStart` hook in `.claude/settings.json` runs `boot-ccotw.sh`, which:
 4. Sets up Python paths for the remembering skill
 5. Outputs `<available_skills>` XML frontmatter into the context window
 6. Runs `post-boot.sh`, which calls the remembering skill's `boot()` to load the Muninn identity, profile, ops, and recent memories from Turso
-7. Pulls `muninn_utils/*.py` from the mac repo (selectively, via GitHub Contents API) into `~/muninn_utils/`. Runs after `boot()` so canonical mac files override any Turso `utility-code` materialization for utilities already migrated. No-ops without `GH_TOKEN`.
+7. Tarballs `oaustegard/muninn-utilities` and copies `muninn_utils/*.py` into `~/muninn_utils/`. Runs after `boot()` so canonical files override any Turso `utility-code` materialization for utilities already migrated. The repo is public — no `GH_TOKEN` required.
 
 Skills, the container layer, and muninn_utils are deliberately separated:
 - **Container layer** (cached): slow-to-install system packages, CLI tools, Python libs
 - **Skills** (fresh every session): fetched from `claude-skills`, never stale
-- **muninn_utils** (fresh every session): fetched from `mac`, source-of-truth for Muninn-flavored code
+- **muninn_utils** (fresh every session): fetched from `muninn-utilities`, source-of-truth for Muninn-flavored code
 
-## muninn_utils: mac is source-of-truth
+## muninn_utils: muninn-utilities is source-of-truth
 
 Per memory `0d63ed4f`: muninn_utils used to live as `utility-code` memories
 in Turso, materialized to `~/muninn_utils/` at boot via `install_utilities()`.
-Source-of-truth has moved to files in `oaustegard/muninn.austegard.com`
-(`muninn_utils/*.py`). Boot fetches them via the GH Contents API — only the
-`.py` files at the directory root, not the 33MB full repo. Tests stay in mac
-and run there.
+Source-of-truth has moved to files in
+[`oaustegard/muninn-utilities`](https://github.com/oaustegard/muninn-utilities)
+(`muninn_utils/*.py`). The repo is public, so the boot fetch needs no auth.
 
-Why not clone all of mac at boot? 99% of sessions don't need the blog HTML,
-images, or perch outputs. Full clone would cost ~3-5s of boot time and ~33MB
-of bandwidth for content only situationally useful. Sessions that genuinely
-need full mac access (writing blogs, debugging perch) should lazy-clone to
-`.spokes/mac` per the spoke convention below.
+Why a dedicated repo (not in mac, not in claude-skills)? mac is a website
+(blog/perch/feeds) — different domain, different lifecycle. claude-skills is
+a general skill library — Muninn-flavored utilities aren't general. A
+dedicated public repo gives muninn_utils its own home, no auth needed at
+boot, and clean CI scope.
 
 Turso `utility-code` memories remain as fallback for utilities not yet
-migrated to mac — `install_utilities()` materializes them, then the mac
-fetch overwrites the migrated ones with the canonical files. Migration in
-progress: PR #124 on mac is the template (`blog_publish`, `bsky_card`,
-`issue_close` migrated). Remaining: `bsky_limit`, `perch_publish`,
-`verify_patch`, `remind`, `perch_triage`, `memory_tfidf`, `whtwnd`,
-`function_name`.
+migrated. `install_utilities()` materializes everything from Turso, then the
+muninn-utilities fetch overwrites the migrated ones with their canonical
+files. Migration in progress: 3 done (`blog_publish`, `bsky_card`,
+`issue_close`); remaining: `bsky_limit`, `perch_publish`, `verify_patch`,
+`remind`, `perch_triage`, `memory_tfidf`, `whtwnd`, `function_name`.
 
 ## Identity
 
