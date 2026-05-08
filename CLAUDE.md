@@ -27,7 +27,7 @@ Per memory `0d63ed4f` and the architectural pivot of 2026-05:
 
 Boot order matters: `claude-skills` is fetched first (provides general skills like `flowing`, `browsing-bluesky`, etc., AND the deprecated `remembering` mirror), then `muninn-utilities` overwrites `remembering/` with the canonical version. `boot()` then runs from the canonical source.
 
-Turso `utility-code` memories remain as fallback for utilities not yet migrated. `install_utilities()` materializes everything from Turso, then the muninn-utilities fetch overwrites the migrated ones with their canonical files. Migration in progress: 3 done (`blog_publish`, `bsky_card`, `issue_close`); remaining: `bsky_limit`, `perch_publish`, `verify_patch`, `remind`, `perch_triage`, `memory_tfidf`, `whtwnd`, `function_name`.
+Turso `utility-code` memories remain as fallback for utilities not yet migrated. `install_utilities()` materializes everything from Turso, then the muninn-utilities fetch overwrites the migrated ones with their canonical files. Migration: 11 utilities now live in `muninn-utilities` — `blog_publish`, `bsky_card`, `bsky_limit`, `issue_close`, `memory_tfidf`, `perch_publish`, `perch_triage`, `remind`, `verify_patch`, `whtwnd`, `zeitgeist_delta` (last 8 added in [muninn-utilities#3](https://github.com/oaustegard/muninn-utilities/pull/3)). The `function_name` entry previously listed here was stale — no such Turso memory exists. `flowing` is tagged `utility-code` but is a thin re-export wrapper over `/mnt/skills/user/flowing/` and is intentionally left in Turso. Once the muninn-utilities copies are confirmed healthy across a few sessions, the corresponding Turso `utility-code` memories can be superseded.
 
 ## Identity
 
