@@ -8,36 +8,26 @@ The `SessionStart` hook in `.claude/settings.json` runs `boot-ccotw.sh`, which:
 1. Bootstraps the container-layer skill from `oaustegard/claude-skills`
 2. Applies the `Containerfile` — installing system packages and Python deps (cached as a tarball in GitHub Releases)
 3. Fetches skills fresh from `oaustegard/claude-skills` via tarball (always current, never cached in the container layer)
-4. Sets up Python paths for the remembering skill
-5. Outputs `<available_skills>` XML frontmatter into the context window
-6. Runs `post-boot.sh`, which calls the remembering skill's `boot()` to load the Muninn identity, profile, ops, and recent memories from Turso
-7. Tarballs `oaustegard/muninn-utilities` and copies `muninn_utils/*.py` into `~/muninn_utils/`. Runs after `boot()` so canonical files override any Turso `utility-code` materialization for utilities already migrated. The repo is public — no `GH_TOKEN` required.
+4. Tarballs `oaustegard/muninn-utilities` and overlays `remembering/` into `/mnt/skills/user/remembering/` (replacing the deprecated mirror that claude-skills still ships) and `muninn_utils/*.py` into `~/muninn_utils/`. Public repo — no `GH_TOKEN` required.
+5. Sets up Python paths for the remembering skill (now sourced from muninn-utilities)
+6. Outputs `<available_skills>` XML frontmatter into the context window
+7. Runs `post-boot.sh`, which calls `boot()` from the muninn-utilities-installed remembering — loads the Muninn identity, profile, ops, and recent memories from Turso
 
-Skills, the container layer, and muninn_utils are deliberately separated:
+Three deliberately separated layers:
 - **Container layer** (cached): slow-to-install system packages, CLI tools, Python libs
 - **Skills** (fresh every session): fetched from `claude-skills`, never stale
-- **muninn_utils** (fresh every session): fetched from `muninn-utilities`, source-of-truth for Muninn-flavored code
+- **muninn-utilities** (fresh every session): fetched from `muninn-utilities`, source-of-truth for everything Muninn (`remembering/` + `muninn_utils/`)
 
-## muninn_utils: muninn-utilities is source-of-truth
+## muninn-utilities is the home for everything Muninn
 
-Per memory `0d63ed4f`: muninn_utils used to live as `utility-code` memories
-in Turso, materialized to `~/muninn_utils/` at boot via `install_utilities()`.
-Source-of-truth has moved to files in
-[`oaustegard/muninn-utilities`](https://github.com/oaustegard/muninn-utilities)
-(`muninn_utils/*.py`). The repo is public, so the boot fetch needs no auth.
+Per memory `0d63ed4f` and the architectural pivot of 2026-05:
 
-Why a dedicated repo (not in mac, not in claude-skills)? mac is a website
-(blog/perch/feeds) — different domain, different lifecycle. claude-skills is
-a general skill library — Muninn-flavored utilities aren't general. A
-dedicated public repo gives muninn_utils its own home, no auth needed at
-boot, and clean CI scope.
+- `remembering/` (memory subsystem) used to live in `claude-skills` as a "general" skill. In practice nobody but Muninn used it — Turso credentials, muninn.austegard.com endpoints, decision-trace conventions, identity-loading boot semantics are all hers. It's now sourced from muninn-utilities. claude-skills holds a deprecated mirror, kept fresh by a sync workflow on muninn-utilities for marketplace continuity.
+- `muninn_utils/` (utility code: blog publish, bsky cards, issue close, etc.) used to live as Turso `utility-code` memories materialized to `~/muninn_utils/` by `install_utilities()`. Source-of-truth has moved to files in muninn-utilities.
 
-Turso `utility-code` memories remain as fallback for utilities not yet
-migrated. `install_utilities()` materializes everything from Turso, then the
-muninn-utilities fetch overwrites the migrated ones with their canonical
-files. Migration in progress: 3 done (`blog_publish`, `bsky_card`,
-`issue_close`); remaining: `bsky_limit`, `perch_publish`, `verify_patch`,
-`remind`, `perch_triage`, `memory_tfidf`, `whtwnd`, `function_name`.
+Boot order matters: `claude-skills` is fetched first (provides general skills like `flowing`, `browsing-bluesky`, etc., AND the deprecated `remembering` mirror), then `muninn-utilities` overwrites `remembering/` with the canonical version. `boot()` then runs from the canonical source.
+
+Turso `utility-code` memories remain as fallback for utilities not yet migrated. `install_utilities()` materializes everything from Turso, then the muninn-utilities fetch overwrites the migrated ones with their canonical files. Migration in progress: 3 done (`blog_publish`, `bsky_card`, `issue_close`); remaining: `bsky_limit`, `perch_publish`, `verify_patch`, `remind`, `perch_triage`, `memory_tfidf`, `whtwnd`, `function_name`.
 
 ## Identity
 
