@@ -42,6 +42,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash ./scripts/inject-identity.sh 2>/dev/null || true"
+          },
+          {
+            "type": "command",
             "command": "python3 ./scripts/derive-session-title.py 2>/dev/null || true"
           },
           {
