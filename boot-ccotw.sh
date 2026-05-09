@@ -184,6 +184,12 @@ _output_skills() {
     # the ~35KB that a descriptions dump would cost every session, which
     # is important because Claude Code's SessionStart hook truncates
     # stdout to a ~2KB preview.
+    #
+    # Names are deduped: two directories occasionally declare the same
+    # `name:` (e.g. `building-github-index/` and `building-github-index-v2/`
+    # both shipped from claude-skills with `name: building-github-index`).
+    # The structural fix lives upstream, but emitting duplicates pollutes
+    # the boot signal regardless of cause.
     [ -d "$SKILLS_DIR" ] || return 0
     echo ""
     echo "<available_skills source=\"$SKILLS_DIR\">"
@@ -191,13 +197,56 @@ _output_skills() {
         local skill_file="${skill_dir}SKILL.md"
         if [ -f "$skill_file" ]; then
             local name=$(grep -m1 "^name:" "$skill_file" | sed 's/name: *//')
-            [ -n "$name" ] && echo "<skill>$name</skill>"
+            [ -n "$name" ] && echo "$name"
         fi
-    done
+    done | sort -u | sed 's|.*|<skill>&</skill>|'
     echo "</available_skills>"
     echo "Use finding-skills to search descriptions or load a specific SKILL.md:"
     echo "  python3 $SKILLS_DIR/finding-skills/scripts/skills.py search <query>"
     echo "  python3 $SKILLS_DIR/finding-skills/scripts/skills.py show <name>"
+}
+
+_link_slash_skills() {
+    # Make a curated set of /mnt/skills/user/* skills invocable via the
+    # harness's `Skill` tool (and as `/<name>` slash commands). The
+    # registry only scans ~/.claude/skills/<name>/SKILL.md — sideloaded
+    # skills are otherwise unreachable except by direct `python3` invoke.
+    #
+    # Curated, not blanket: each registered skill's frontmatter description
+    # gets concatenated into the skill list every turn. Symlinking 80+
+    # skills would burn meaningful context every prompt; the long tail
+    # stays discoverable via finding-skills.
+    #
+    # Effect lags one session: SessionStart fires AFTER the harness has
+    # already built its registry. Symlinks created here take effect next
+    # session. Acceptable.
+    local home_dir
+    home_dir=$(python3 -c 'import os; print(os.path.expanduser("~"))')
+    local target_dir="$home_dir/.claude/skills"
+    [ -d "$SKILLS_DIR" ] || return 0
+    mkdir -p "$target_dir" 2>/dev/null || return 0
+    local slash_skills=(
+        composing-html
+        flowing
+        browsing-bluesky
+        charting
+        iterating
+        json-render-ui
+        creating-skill
+        exploring-codebases
+        tree-sitting
+        uploading-files
+        finding-skills
+        remembering
+    )
+    local linked=0
+    local s
+    for s in "${slash_skills[@]}"; do
+        if [ -d "$SKILLS_DIR/$s" ] && [ -f "$SKILLS_DIR/$s/SKILL.md" ]; then
+            ln -sfn "$SKILLS_DIR/$s" "$target_dir/$s" 2>/dev/null && linked=$((linked + 1))
+        fi
+    done
+    echo "  ✓ Linked $linked slash skills into $target_dir"
 }
 
 _source_env() {
@@ -228,6 +277,8 @@ if [ -f "$MARKER" ]; then
     _tmark "muninn_utilities"
     _setup_python_paths
     _tmark "python_paths"
+    _link_slash_skills
+    _tmark "slash_skills"
     _output_skills
     _tmark "skills_list"
     _run_smoke_test_background

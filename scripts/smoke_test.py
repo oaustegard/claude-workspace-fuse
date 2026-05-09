@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -76,11 +77,15 @@ def pysr_check():
 @task
 @_safe
 def mojo_check():
-    ver = subprocess.run(
-        ["mojo", "--version"], capture_output=True, text=True, timeout=30,
-    )
-    if ver.returncode != 0:
-        raise RuntimeError(f"mojo --version exit {ver.returncode}: {ver.stderr.strip()}")
+    # `mojo --version` does a licensing-service round-trip on first invoke
+    # per process and routinely blows past 30s in this container's network
+    # path, surfacing as a red `mojo_check` failure on every UserPromptSubmit.
+    # `shutil.which` confirms the binary is on PATH without paying the tax;
+    # the actual `mojo run` below is the functional smoke and tolerates the
+    # licensing latency under its 120s timeout.
+    mojo_path = shutil.which("mojo")
+    if not mojo_path:
+        raise RuntimeError("mojo not found on PATH")
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".mojo", delete=False,
@@ -99,7 +104,7 @@ def mojo_check():
             f"mojo run failed: exit={prog.returncode} "
             f"stdout={prog.stdout!r} stderr={prog.stderr.strip()[:200]!r}"
         )
-    return {"version": ver.stdout.strip().splitlines()[0]}
+    return {"path": mojo_path}
 
 
 @task
