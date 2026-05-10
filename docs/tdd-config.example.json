@@ -1,0 +1,18 @@
+{
+  "_comment_1": "Example TDD enforcement config for a spoke repo. Copy to .claude/tdd-config.json in the target repo and adjust paths.",
+  "_comment_2": "Drives scripts/tdd_hook.py in the hub. Missing config in a repo = hooks no-op for that repo (opt-in).",
+
+  "_field_tdd_default_paths": "Path prefixes that participate in TDD enforcement. Only impl files inside these prefixes trigger the PostToolUse runner and the PreToolUse commit gate.",
+  "tdd_default_paths": ["src/", "lib/"],
+
+  "_field_tdd_skip_paths": "Path prefixes that opt OUT of enforcement even when nested inside a default path. Use for site assets, generated code, one-shot scripts, docs.",
+  "tdd_skip_paths": ["docs/", "site/", "scripts/oneshot/"],
+
+  "_field_test_mapping": "Ordered list of impl→test rules. `impl` is a Python regex; `test` is a re.sub template. First match wins.",
+  "test_mapping": [
+    {"impl": "src/(.+)\\.py$", "test": "tests/test_\\1.py"},
+    {"impl": "lib/(.+)\\.js$", "test": "test/\\1.test.js"}
+  ],
+
+  "_escape_hatch": "To bypass the commit gate on a single commit, include `tdd-skip: <reason>` anywhere in the commit body. The literal string is what the hook scans for."
+}
