@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Snooker Break Simulator — Apex vs Third-Ball</title>
+<title>Snooker Break Simulator — Traditional vs Murphy's Third-Red</title>
 <style>
   :root {
     --bg: #1a1d20;
@@ -171,7 +171,7 @@
 <body>
 <header>
   <h1>Snooker Break Simulator</h1>
-  <p>Apex strike (traditional, ~100 years old) vs third-ball strike (Shaun Murphy, 2026 World Championship final). Click table to aim, adjust spin with the offset pad, hit <span class="keyhint">space</span> to shoot.</p>
+  <p>Traditional rearmost-red break (Frank Callan, ~100 years old) vs Shaun Murphy's third-red break (2026 World Championship final). Click table to aim, drag the spin pad to set tip offset, hit <span class="keyhint">space</span> to shoot.</p>
 </header>
 <main>
   <div id="table-wrap">
@@ -180,13 +180,13 @@
   <div id="controls">
     <div class="group">
       <h2>Demo presets</h2>
-      <button class="preset" id="presetApex">
-        <span class="label">Traditional: hit the apex</span>
-        <span class="desc">Symmetric strike on the front ball — head-on energy distribution.</span>
+      <button class="preset" id="presetTraditional">
+        <span class="label">Traditional: rearmost red</span>
+        <span class="desc">Aim at the back-row corner on the cue's side. Glancing thin contact with the side of the rack — Frank Callan style safe break.</span>
       </button>
       <button class="preset" id="presetMurphy">
-        <span class="label">Murphy: hit the third ball</span>
-        <span class="desc">Aim past the apex into the second-row red — asymmetric break.</span>
+        <span class="label">Murphy: third red</span>
+        <span class="desc">Aim at the third red along the cue-side line ("higher up the rack"). Deeper contact, more energy into the pack — Murphy's 2026 World final innovation.</span>
       </button>
     </div>
 
@@ -828,7 +828,7 @@ function resetRack() {
   const r = buildRack();
   state.balls = r.balls;
   state.cue = r.cue;
-  state.aim = { x: SPOT.pink.x + 2 * BALL_R, y: SPOT.pink.y }; // default: apex
+  state.aim = { x: SPOT.pink.x + 2 * BALL_R, y: SPOT.pink.y }; // default: through apex
   state.isAnimating = false;
 }
 
@@ -915,18 +915,21 @@ document.getElementById('reset').addEventListener('click', () => {
 });
 document.getElementById('clearTrails').addEventListener('click', clearTrails);
 
-document.getElementById('presetApex').addEventListener('click', () => {
+document.getElementById('presetTraditional').addEventListener('click', () => {
   if (state.isAnimating) return;
-  // Place cue ball at standard break position
   state.cue.x = CUE_START.x; state.cue.y = CUE_START.y;
   state.cue.vx = 0; state.cue.vy = 0; state.cue.wx = 0; state.cue.wy = 0; state.cue.wz = 0;
-  // Aim at apex of red triangle
+  // Traditional break: aim at the rearmost red on the cue's side (back-row corner,
+  // green side here). Cue ball travels along the green side of the rack, makes thin
+  // glancing contact in row 4, and rebounds toward baulk. Frank Callan-style.
   const apexX = SPOT.pink.x + 2 * BALL_R + 0.5;
-  state.aim = { x: apexX, y: SPOT.pink.y };
-  // Default spin: light backspin to control cue ball after impact
-  tipOffset = { side: 0, top: -0.2 };
-  document.getElementById('spinTopVal').textContent = '-0.20';
-  document.getElementById('spinSideVal').textContent = '0.00';
+  const rowDx = Math.sqrt(3) * BALL_R + 0.3;
+  const colDy = 2 * BALL_R + 0.3;
+  state.aim = { x: apexX + 4 * rowDx, y: SPOT.pink.y + 2 * colDy };
+  // Backspin + right-hand sidespin: holds cue ball back, controls cushion rebound
+  tipOffset = { side: 0.4, top: -0.4 };
+  document.getElementById('spinTopVal').textContent = '-0.40';
+  document.getElementById('spinSideVal').textContent = '0.40';
   drawSpinPad();
 });
 
@@ -934,15 +937,18 @@ document.getElementById('presetMurphy').addEventListener('click', () => {
   if (state.isAnimating) return;
   state.cue.x = CUE_START.x; state.cue.y = CUE_START.y;
   state.cue.vx = 0; state.cue.vy = 0; state.cue.wx = 0; state.cue.wy = 0; state.cue.wz = 0;
-  // Aim at the second-row ball nearer the cue side (the "third ball" in Murphy's terminology:
-  // counting apex=1, the two second-row balls are 2 and 3). Cue ball is on the green side
-  // (positive y), so the closer second-row ball is the one at +y (R3).
+  // Murphy's third-red strike: counting along the cue-side line of balls
+  //   1 = apex, 2 = row-2 cue side, 3 = row-3 cue side corner, ... 5 = back corner
+  // Murphy aims at #3 — "higher up the rack" (closer to the apex) than traditional.
+  // The cue ball clips row-2 thinly and makes deeper contact with row-3, channeling
+  // energy into the pack rather than glancing off the side.
   const apexX = SPOT.pink.x + 2 * BALL_R + 0.5;
   const rowDx = Math.sqrt(3) * BALL_R + 0.3;
   const colDy = 2 * BALL_R + 0.3;
-  state.aim = { x: apexX + rowDx, y: SPOT.pink.y + 0.5 * colDy };
-  tipOffset = { side: 0, top: -0.2 };
-  document.getElementById('spinTopVal').textContent = '-0.20';
+  state.aim = { x: apexX + 2 * rowDx, y: SPOT.pink.y + colDy };
+  // Light backspin, no side: the goal is energy transfer, not cue-ball control
+  tipOffset = { side: 0, top: -0.1 };
+  document.getElementById('spinTopVal').textContent = '-0.10';
   document.getElementById('spinSideVal').textContent = '0.00';
   drawSpinPad();
 });
