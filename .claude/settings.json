@@ -20,6 +20,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "python3 ./scripts/check-store-on-stop.py"
+          },
+          {
+            "type": "command",
             "command": "bash ./persist-transcript.sh 2>/dev/null || true"
           }
         ]
