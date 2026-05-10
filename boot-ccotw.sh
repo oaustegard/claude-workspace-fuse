@@ -192,15 +192,17 @@ _output_skills() {
     # the boot signal regardless of cause.
     [ -d "$SKILLS_DIR" ] || return 0
     echo ""
-    echo "<available_skills source=\"$SKILLS_DIR\">"
-    for skill_dir in "$SKILLS_DIR"/*/; do
-        local skill_file="${skill_dir}SKILL.md"
-        if [ -f "$skill_file" ]; then
-            local name=$(grep -m1 "^name:" "$skill_file" | sed 's/name: *//')
-            [ -n "$name" ] && echo "$name"
-        fi
-    done | sort -u | sed 's|.*|<skill>&</skill>|'
-    echo "</available_skills>"
+    local names
+    names=$(
+        for skill_dir in "$SKILLS_DIR"/*/; do
+            local skill_file="${skill_dir}SKILL.md"
+            if [ -f "$skill_file" ]; then
+                local name=$(grep -m1 "^name:" "$skill_file" | sed 's/name: *//')
+                [ -n "$name" ] && echo "$name"
+            fi
+        done | sort -u | paste -sd ',' -
+    )
+    echo "<available_skills source=\"$SKILLS_DIR\">$names</available_skills>"
     echo "Use finding-skills to search descriptions or load a specific SKILL.md:"
     echo "  python3 $SKILLS_DIR/finding-skills/scripts/skills.py search <query>"
     echo "  python3 $SKILLS_DIR/finding-skills/scripts/skills.py show <name>"
