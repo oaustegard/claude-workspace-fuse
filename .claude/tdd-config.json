@@ -1,0 +1,14 @@
+{
+  "_comment": "Per-repo TDD enforcement config (issue #69). Drives scripts/tdd_hook.py.",
+  "tdd_default_paths": ["scripts/"],
+  "tdd_skip_paths": [
+    "scripts/oneshot/",
+    "diagnostics/",
+    "experiments/",
+    "reviews/",
+    "docs/"
+  ],
+  "test_mapping": [
+    {"impl": "scripts/(.+)\\.py$", "test": "tests/test_\\1.py"}
+  ]
+}

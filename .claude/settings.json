@@ -76,6 +76,10 @@
             "type": "command",
             "if": "Write(**/Containerfile)",
             "command": "nohup bash ./rebuild-layer.sh >/dev/null 2>&1 & true"
+          },
+          {
+            "type": "command",
+            "command": "python3 ./scripts/tdd_hook.py posttooluse 2>/dev/null || true"
           }
         ]
       },
@@ -85,6 +89,17 @@
           {
             "type": "command",
             "command": "python3 ./scripts/trim-tool-output.py 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./scripts/tdd_hook.py pretooluse 2>/dev/null || true"
           }
         ]
       }
