@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ./scripts/check-store-on-stop.py"
+            "command": "python3 /home/user/claude-workspace/scripts/check-store-on-stop.py 2>/dev/null || true"
           },
           {
             "type": "command",
