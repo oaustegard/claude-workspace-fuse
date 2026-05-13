@@ -43,6 +43,15 @@ RUN GH_VER=$(curl -sL -H "Authorization: token ${GH_TOKEN}" https://api.github.c
 # Noop setup script to suppress "No setup script configured" message
 RUN touch /home/user/setup.sh && chmod +x /home/user/setup.sh
 
+# Auto-source /mnt/project/*.env into every bash subprocess so credentials
+# (GH_TOKEN, TURSO_*, MUNINN_BSKY_*) survive across bash_tool invocations
+# without per-call `set -a; . /mnt/project/*.env; set +a` boilerplate.
+# See: oaustegard/claude-workspace#80.
+# Profile fragment is sourced by login shells via /etc/profile and by
+# non-interactive `bash -c` subshells via BASH_ENV (set in /etc/environment).
+RUN printf '%s\n' '# Auto-source project credentials (claude-workspace#80)' 'if [ -d /mnt/project ]; then' '    set -a' '    for f in /mnt/project/*.env; do' '        [ -r "$f" ] && . "$f"' '    done' '    set +a' 'fi' > /etc/profile.d/muninn-env.sh && chmod 0644 /etc/profile.d/muninn-env.sh
+RUN grep -q '^BASH_ENV=' /etc/environment 2>/dev/null || echo 'BASH_ENV=/etc/profile.d/muninn-env.sh' >> /etc/environment
+
 # Snapshot — only system packages and tools
 SNAPSHOT /usr/local/lib/python3.11/dist-packages
 SNAPSHOT /home/user/setup.sh
@@ -50,6 +59,8 @@ SNAPSHOT /usr/local/bin/gh
 SNAPSHOT /usr/local/bin/mojo
 SNAPSHOT /usr/local/bin/mojo-lldb
 SNAPSHOT /usr/local/bin/mojo-lsp-server
+SNAPSHOT /etc/profile.d/muninn-env.sh
+SNAPSHOT /etc/environment
 # Julia toolchain + precompiled SymbolicRegression.jl cache (~1GB).
 # Without this, every session pays the 5-minute Julia bootstrap.
 SNAPSHOT /root/.julia
