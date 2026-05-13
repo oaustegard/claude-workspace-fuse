@@ -78,6 +78,14 @@ Other repos are **spokes** that you work in during sessions. Key spokes:
   from a single operator" (arXiv:2603.21852). Note: the user (and
   branch names) sometimes type "elm" when they mean "eml" — this is
   the repo.
+- **`oaustegard/claude-tangled-spoke`** — Standalone hub repo that boots
+  CCotw sessions with authenticated access to [Tangled](https://tangled.org)
+  (the ATProto-based git host), analog of `claude-github-and-spoke`. Ships
+  a stdlib-only Python `tg` CLI covering auth, repo (incl. create via Knot
+  service-auth), issue, pr (incl. patch-based create), and ssh-key. Used
+  as a template by ATProto developers wanting Claude Code on the Web; not
+  used by this workspace itself. Mirrored to Tangled at
+  [austegard.com/claude-tangled-spoke](https://tangled.org/austegard.com/claude-tangled-spoke).
 
 **GitHub operations use `gh` CLI** (authenticated via `$GH_TOKEN`), which
 works across all oaustegard repos — hub and spokes alike. The platform's
