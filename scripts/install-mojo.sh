@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Install the Mojo toolchain on demand.
-# Idempotent — re-running is cheap when already installed (uv skips satisfied deps).
-# Cost: ~2-3 minutes on a cold container (~550MB download).
+# Restore the cached Mojo addon layer (or build + push it on first miss).
+# Idempotent — returns instantly when mojo is already present.
 #
 # Invoke when the session involves Mojo code: fusemojo, tree-sitter-mojo,
-# any .mojo file, "compile this Mojo", `mojo run`, etc.
+# any .mojo file, `mojo run`, etc.
 
 set -e
 
@@ -13,15 +12,24 @@ if command -v mojo >/dev/null 2>&1; then
     exit 0
 fi
 
-t0=$(date +%s)
-echo "Installing Mojo toolchain (~550MB, 2-3 min)..."
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CONTAINERFILE="$REPO_ROOT/Containerfile.mojo"
+SKILL_DIR="/tmp/_container_layer"
 
-# Mojo 1.0.0b1 is a prerelease, so versions are pinned explicitly and
-# --prerelease=allow is required for uv to resolve the transitive
-# mojo-compiler==1.0.0b1 / mojo-lldb-libs==1.0.0b1 deps.
-# --no-deps on `modular` skips `max-core` and ML extras (~350MB saved).
-uv pip install --system --break-system-packages modular==26.3.0 --no-deps
-uv pip install --system --break-system-packages --prerelease=allow mojo==1.0.0b1 max==26.3.0
+if [ ! -f "$SKILL_DIR/scripts/cli.py" ]; then
+    echo "✗ container-layer skill not bootstrapped at $SKILL_DIR"
+    echo "  (boot-ccotw.sh should have done this; retry after a fresh boot)"
+    exit 1
+fi
+
+t0=$(date +%s)
+echo "Restoring Mojo addon layer (cache hit: fast download; cache miss: ~3min build)..."
+
+cd "$SKILL_DIR"
+python3 -m scripts.cli \
+    --token "${GH_TOKEN:-}" \
+    --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
+    restore "$CONTAINERFILE"
 
 t1=$(date +%s)
-echo "✓ mojo installed in $((t1 - t0))s: $(mojo --version 2>&1 | head -1)"
+echo "✓ mojo restored in $((t1 - t0))s: $(mojo --version 2>&1 | head -1)"

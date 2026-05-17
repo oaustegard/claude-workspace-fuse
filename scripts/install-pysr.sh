@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# Install PySR + Julia toolchain on demand.
-# Idempotent — re-running is cheap when already installed.
-# Cost: ~5 minutes on a cold container (Julia 1.10 + SymbolicRegression.jl
-# precompile). The Julia toolchain alone is ~1GB once precompiled.
+# Restore the cached PySR addon layer (or build + push it on first miss).
+# Idempotent — returns instantly when pysr is already present.
 #
-# Invoke when the session involves symbolic regression (eml-sr spoke,
-# PySR runs, SymbolicRegression.jl), anything importing pysr.
+# Invoke when the session involves symbolic regression: eml-sr spoke,
+# PySR runs, SymbolicRegression.jl, anything importing pysr.
 #
-# Note: Julia 1.11 segfaults on SymbolicRegression.jl precompile under
-# gVisor (kernel 4.4.0 / runsc); this pins to Julia 1.10 which works.
+# Cache hit: ~30s (downloads ~1GB tarball including precompiled .julia).
+# Cache miss: ~5min (fresh Julia 1.10 + SymbolicRegression.jl precompile).
 
 set -e
 
@@ -17,12 +15,24 @@ if python3 -c "import pysr" 2>/dev/null; then
     exit 0
 fi
 
-t0=$(date +%s)
-echo "Installing PySR + Julia 1.10 + SymbolicRegression.jl (~5 min)..."
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CONTAINERFILE="$REPO_ROOT/Containerfile.pysr"
+SKILL_DIR="/tmp/_container_layer"
 
-uv pip install --system --break-system-packages pysr
-python3 -c "import juliapkg; juliapkg.require_julia('~1.10'); juliapkg.resolve(force=True)"
-python3 -c "import pysr"  # triggers SymbolicRegression.jl precompile
+if [ ! -f "$SKILL_DIR/scripts/cli.py" ]; then
+    echo "✗ container-layer skill not bootstrapped at $SKILL_DIR"
+    echo "  (boot-ccotw.sh should have done this; retry after a fresh boot)"
+    exit 1
+fi
+
+t0=$(date +%s)
+echo "Restoring PySR addon layer (cache hit: ~30s for ~1GB; cache miss: ~5min)..."
+
+cd "$SKILL_DIR"
+python3 -m scripts.cli \
+    --token "${GH_TOKEN:-}" \
+    --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
+    restore "$CONTAINERFILE"
 
 t1=$(date +%s)
-echo "✓ pysr installed in $((t1 - t0))s: $(python3 -c 'import pysr; print(pysr.__version__)')"
+echo "✓ pysr restored in $((t1 - t0))s: $(python3 -c 'import pysr; print(pysr.__version__)')"

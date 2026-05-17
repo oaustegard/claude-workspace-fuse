@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# Install PyTorch (CPU-only) on demand.
-# Idempotent — re-running is cheap when already installed.
-# Cost: ~1-2 minutes on a cold container (~200MB download).
+# Restore the cached PyTorch addon layer (or build + push it on first miss).
+# Idempotent — returns instantly when torch is already present.
 #
-# Invoke when the session involves model training/inference, tensors,
-# torch.nn, anything importing torch/torchvision/torchaudio.
+# Invoke when the session involves tensors, torch.nn, model training/inference.
 
 set -e
 
@@ -13,13 +11,24 @@ if python3 -c "import torch" 2>/dev/null; then
     exit 0
 fi
 
-t0=$(date +%s)
-echo "Installing PyTorch CPU-only (~200MB, 1-2 min)..."
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CONTAINERFILE="$REPO_ROOT/Containerfile.pytorch"
+SKILL_DIR="/tmp/_container_layer"
 
-# CPU-only build (no CUDA, ~200MB vs ~2GB for GPU build).
-uv pip install --system --break-system-packages \
-    torch torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cpu
+if [ ! -f "$SKILL_DIR/scripts/cli.py" ]; then
+    echo "✗ container-layer skill not bootstrapped at $SKILL_DIR"
+    echo "  (boot-ccotw.sh should have done this; retry after a fresh boot)"
+    exit 1
+fi
+
+t0=$(date +%s)
+echo "Restoring PyTorch addon layer (cache hit: fast download; cache miss: ~2min build)..."
+
+cd "$SKILL_DIR"
+python3 -m scripts.cli \
+    --token "${GH_TOKEN:-}" \
+    --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
+    restore "$CONTAINERFILE"
 
 t1=$(date +%s)
-echo "✓ torch installed in $((t1 - t0))s: $(python3 -c 'import torch; print(torch.__version__)')"
+echo "✓ torch restored in $((t1 - t0))s: $(python3 -c 'import torch; print(torch.__version__)')"

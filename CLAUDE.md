@@ -39,27 +39,36 @@ relevant to the scanner.cc-doesn't-link discovery that got re-done from scratch.
 The mount is read-only by design; for writes still use `remember()` from the
 remembering skill (HTTP path to Turso).
 
-## Heavy deps on demand
+## Heavy deps on demand (per-addon cached layers)
 
 The cached container layer is slim by design — only what every session needs.
-Mojo, PyTorch, and PySR are NOT in the layer; install them when the work
-calls for them. Each installer is idempotent (cheap re-run when already
-installed):
+Mojo, PyTorch, and PySR live in their **own cached layers**, each keyed by
+the content hash of their `Containerfile.<addon>`. Restore on demand:
 
-| Tool | Trigger | Install command | Cost on cold container |
-|---|---|---|---|
-| Mojo | Any `.mojo` file, `mojo` CLI, fusemojo/tree-sitter-mojo work | `scripts/install-mojo.sh` | ~2-3 min, 550MB |
-| PyTorch | `import torch`, model training/inference, tensors | `scripts/install-pytorch.sh` | ~1-2 min, 200MB |
-| PySR | `import pysr`, eml-sr spoke, SymbolicRegression.jl | `scripts/install-pysr.sh` | ~5 min (Julia precompile) |
+| Tool | Trigger | Restore command | Cache hit | Cache miss (build + push) |
+|---|---|---|---|---|
+| Mojo | Any `.mojo` file, `mojo` CLI, fusemojo/tree-sitter-mojo work | `scripts/install-mojo.sh` | ~30s download+extract | ~3 min one-time, then cached for everyone |
+| PyTorch | `import torch`, model training/inference, tensors | `scripts/install-pytorch.sh` | ~20s | ~2 min one-time |
+| PySR | `import pysr`, eml-sr spoke, SymbolicRegression.jl | `scripts/install-pysr.sh` | ~30s (incl. precompiled `/root/.julia`) | ~5 min one-time |
 
-Always-on (in Containerfile, always cached): scipy, scikit-learn, pandas,
+Each installer is idempotent — returns instantly when the tool is already
+present. Run it *before* the first command that needs the tool; don't wait
+for `import` to fail.
+
+The cache lives in [oaustegard/claude-container-layers](https://github.com/oaustegard/claude-container-layers)
+as GitHub Releases (one per content hash). First invocation of a given
+`Containerfile.<addon>` pays the build cost and pushes the tarball; every
+subsequent invocation (anyone, any session) is a cache hit.
+
+**Always-on (in `Containerfile`, always cached):** scipy, scikit-learn, pandas,
 tree-sitter-language-pack, httpx, libsql-experimental, FUSE userspace+bindings,
 gh CLI, the env-source shim.
 
-Run the installer *before* the first command that needs the tool — don't wait
-for the import to fail. The installer is fast when already installed (just
-verifies and returns), so prefer running it once at the start of relevant work
-over scattering `import torch` retries.
+**Why not fresh `pip install`?** Network round-trips + dependency resolution
++ wheel-by-wheel installation = minutes even when the bytes are small.
+Tarball restore is a single stream, no Python-level activity, no resolver.
+Especially worth it for PySR where the precompiled `/root/.julia` (~1GB)
+would otherwise cost 5 minutes to rebuild on every fresh container.
 
 This repo configures Claude Code on the Web to boot as **Muninn**.
 

@@ -1,0 +1,8 @@
+# PyTorch CPU-only addon layer — restored on demand via scripts/install-pytorch.sh.
+# Cached separately from the base layer; cache key = content hash of this file.
+#
+# CPU-only build (no CUDA, ~200MB vs ~2GB for GPU build).
+
+RUN uv pip install --system --break-system-packages torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+SNAPSHOT /usr/local/lib/python3.11/dist-packages
