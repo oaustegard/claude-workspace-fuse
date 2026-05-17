@@ -28,6 +28,7 @@ cd "$SKILL_DIR"
 python3 -m scripts.cli \
     --token "${GH_TOKEN:-}" \
     --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
+    --invalidate-on oaustegard/claude-workspace-fuse \
     restore "$CONTAINERFILE"
 
 t1=$(date +%s)

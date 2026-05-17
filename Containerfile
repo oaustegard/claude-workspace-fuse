@@ -2,7 +2,7 @@
 # Always-on base: tools every session benefits from.
 # Heavy/optional deps (mojo, pytorch, pysr) are on-demand via scripts/install-*.sh.
 # Skills are fetched fresh at session start, not cached here.
-# cache-bust: 2026-05-17
+# cache-bust: 2026-05-17b
 
 # Always-on Python deps
 RUN uv pip install --system --break-system-packages httpx libsql-experimental
@@ -18,10 +18,11 @@ RUN uv pip install --system --break-system-packages scipy scikit-learn pandas
 # only _native/, missing the python module (ModuleNotFoundError on import).
 RUN uv pip install --system --break-system-packages 'tree-sitter-language-pack<1.6.3'
 
-# FUSE userspace + fusepy bindings for the /mnt/muninn memfs mount.
-# Previously installed by boot-ccotw.sh:_install_fuse_deps on every cold
-# session (~14s); baked in here saves that on every boot.
-RUN apt-get update -qq && apt-get install -y --no-install-recommends libfuse2 fuse && rm -rf /var/lib/apt/lists/*
+# FUSE userspace (libfuse2 + fusermount) is already in the base container
+# image — we only need the fusepy Python bindings. Don't `apt-get install
+# libfuse2 fuse` here: it's a no-op (already installed) but triggers the
+# container-layer skill to snapshot all of /usr/lib, /usr/bin, /usr/share
+# (~3GB raw, ~600MB compressed) into the cached tarball.
 RUN uv pip install --system --break-system-packages fusepy
 
 # GitHub CLI — direct binary (not in default apt repos).
