@@ -1,42 +1,30 @@
-# Muninn Container Layer
-# System packages and Python deps for Claude Code on the Web
+# Muninn Container Layer (FUSE variant)
+# Always-on base: tools every session benefits from.
+# Heavy/optional deps (mojo, pytorch, pysr) are on-demand via scripts/install-*.sh.
 # Skills are fetched fresh at session start, not cached here.
-# cache-bust: 2026-05-07
+# cache-bust: 2026-05-17
 
-# Python dependencies
+# Always-on Python deps
 RUN uv pip install --system --break-system-packages httpx libsql-experimental
 
 # Scientific Python core — scipy/sklearn/pandas together pull ~55MB of wheels
 # and transitive deps; baking them in avoids re-downloading every session.
+# Used by enough skills (charting, exploring-data, forecasting, etc.) to
+# justify the always-on cost.
 RUN uv pip install --system --break-system-packages scipy scikit-learn pandas
 
-# Mojo (via Modular's pypi packages — provides `mojo` CLI, ~550MB)
-# Mojo 1.0.0b1 is a prerelease, so versions are pinned explicitly and
-# --prerelease=allow is required for uv to resolve the transitive
-# mojo-compiler==1.0.0b1 / mojo-lldb-libs==1.0.0b1 deps.
-# --no-deps on `modular` skips `max-core` and ML extras (~350MB saved).
-# `mojo max` then pulls the CLI entry points + base deps (numpy, pyyaml, rich).
-RUN uv pip install --system --break-system-packages modular==26.3.0 --no-deps
-RUN uv pip install --system --break-system-packages --prerelease=allow mojo==1.0.0b1 max==26.3.0
-
-# PyTorch CPU-only (no CUDA, ~200MB vs ~2GB for GPU build)
-RUN uv pip install --system --break-system-packages torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-# tree-sitter for codebase-exploration skills (exploring-codebases, tree-sitting).
-# Pin to <1.6.3 — that wheel is broken (ships only _native/, missing the
-# tree_sitter_language_pack/ python module → ModuleNotFoundError on import).
-# Pulls in tree-sitter as a transitive dep, so no separate install needed.
+# tree-sitter for codebase-exploration skills (exploring-codebases,
+# tree-sitting, mapping-codebases).  Pin <1.6.3 — the 1.6.3 wheel ships
+# only _native/, missing the python module (ModuleNotFoundError on import).
 RUN uv pip install --system --break-system-packages 'tree-sitter-language-pack<1.6.3'
 
-# PySR + Julia toolchain for symbolic-regression benchmarks (eml-sr #47).
-# Julia 1.11 segfaults on SymbolicRegression.jl precompile under gVisor
-# (kernel 4.4.0 / runsc); pin to Julia 1.10 which precompiles cleanly.
-# Total install is ~5 min on a cold cache — absolutely belongs here.
-RUN uv pip install --system --break-system-packages pysr
-RUN python3 -c "import juliapkg; juliapkg.require_julia('~1.10'); juliapkg.resolve(force=True)"
-RUN python3 -c "import pysr"  # triggers SymbolicRegression.jl precompile
+# FUSE userspace + fusepy bindings for the /mnt/muninn memfs mount.
+# Previously installed by boot-ccotw.sh:_install_fuse_deps on every cold
+# session (~14s); baked in here saves that on every boot.
+RUN apt-get update -qq && apt-get install -y --no-install-recommends libfuse2 fuse && rm -rf /var/lib/apt/lists/*
+RUN uv pip install --system --break-system-packages fusepy
 
-# GitHub CLI — direct binary (not in default apt repos)
+# GitHub CLI — direct binary (not in default apt repos).
 # Authenticated API call so the shared container IP doesn't get rate-limited.
 RUN GH_VER=$(curl -sL -H "Authorization: token ${GH_TOKEN}" https://api.github.com/repos/cli/cli/releases/latest | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))") && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VER}/gh_${GH_VER}_linux_amd64.tar.gz" | tar -xz --strip-components=2 -C /usr/local/bin "gh_${GH_VER}_linux_amd64/bin/gh"
 
@@ -52,17 +40,11 @@ RUN touch /home/user/setup.sh && chmod +x /home/user/setup.sh
 RUN printf '%s\n' '# Auto-source project credentials (claude-workspace#80)' 'if [ -d /mnt/project ]; then' '    set -a' '    for f in /mnt/project/*.env; do' '        [ -r "$f" ] && . "$f"' '    done' '    set +a' 'fi' > /etc/profile.d/muninn-env.sh && chmod 0644 /etc/profile.d/muninn-env.sh
 RUN grep -q '^BASH_ENV=' /etc/environment 2>/dev/null || echo 'BASH_ENV=/etc/profile.d/muninn-env.sh' >> /etc/environment
 
-# Snapshot — only system packages and tools
+# Snapshot — only system packages and tools (no mojo/pysr/julia binaries now)
 SNAPSHOT /usr/local/lib/python3.11/dist-packages
 SNAPSHOT /home/user/setup.sh
 SNAPSHOT /usr/local/bin/gh
-SNAPSHOT /usr/local/bin/mojo
-SNAPSHOT /usr/local/bin/mojo-lldb
-SNAPSHOT /usr/local/bin/mojo-lsp-server
 SNAPSHOT /etc/profile.d/muninn-env.sh
 SNAPSHOT /etc/environment
-# Julia toolchain + precompiled SymbolicRegression.jl cache (~1GB).
-# Without this, every session pays the 5-minute Julia bootstrap.
-SNAPSHOT /root/.julia
 
 WORKDIR /home/user

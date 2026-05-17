@@ -12,9 +12,54 @@ implementation (~250 lines).
 
 Everything below is inherited from the parent hub. The only deltas are:
 - `scripts/muninn_memfs.py` (the FUSE server)
+- `scripts/install-{mojo,pytorch,pysr}.sh` (on-demand heavy-dep installers)
 - `tests/test_muninn_memfs.py` (26 unit tests, no FUSE/Turso needed)
-- `boot-ccotw.sh` (two new functions: `_install_fuse_deps`, `_start_memfs_background`)
+- `boot-ccotw.sh` (two new functions: `_install_fuse_deps` fallback, `_start_memfs_background`)
 - `docs/memfs.md` (design notes)
+- `Containerfile` is slimmer than the parent's: FUSE deps baked in, but Mojo/PyTorch/PySR stripped out and moved to on-demand installers (see below).
+
+## Reach for /mnt/muninn first
+
+The FUSE mount projects 1490+ memories as individual markdown files. Before
+WebSearch, before `recall()` over HTTP, before answering from training-data
+recall — if the task involves "what do we know about X", "have we done Y
+before", or "is there prior art on Z", grep the mount:
+
+```bash
+grep -l 'X' /mnt/muninn/memories/*.md       # ~200ms across the whole corpus
+grep -lE 'pattern1|pattern2' /mnt/muninn/memories/*.md
+```
+
+Diagnosed miss (session 854f6b7c, 2026-05-17): wrote a tree-sitter grammar
+without checking the mount first; would have surfaced
+`77cf6b41-tree-sitter-setup-gotcha`, `e2de0a20-tree-sitter-language-pack-163-latest`,
+`fb27a55a-pr-536-treesitpy-cli-cross-process-cache` — three memories directly
+relevant to the scanner.cc-doesn't-link discovery that got re-done from scratch.
+
+The mount is read-only by design; for writes still use `remember()` from the
+remembering skill (HTTP path to Turso).
+
+## Heavy deps on demand
+
+The cached container layer is slim by design — only what every session needs.
+Mojo, PyTorch, and PySR are NOT in the layer; install them when the work
+calls for them. Each installer is idempotent (cheap re-run when already
+installed):
+
+| Tool | Trigger | Install command | Cost on cold container |
+|---|---|---|---|
+| Mojo | Any `.mojo` file, `mojo` CLI, fusemojo/tree-sitter-mojo work | `scripts/install-mojo.sh` | ~2-3 min, 550MB |
+| PyTorch | `import torch`, model training/inference, tensors | `scripts/install-pytorch.sh` | ~1-2 min, 200MB |
+| PySR | `import pysr`, eml-sr spoke, SymbolicRegression.jl | `scripts/install-pysr.sh` | ~5 min (Julia precompile) |
+
+Always-on (in Containerfile, always cached): scipy, scikit-learn, pandas,
+tree-sitter-language-pack, httpx, libsql-experimental, FUSE userspace+bindings,
+gh CLI, the env-source shim.
+
+Run the installer *before* the first command that needs the tool — don't wait
+for the import to fail. The installer is fast when already installed (just
+verifies and returns), so prefer running it once at the start of relevant work
+over scattering `import torch` retries.
 
 This repo configures Claude Code on the Web to boot as **Muninn**.
 
