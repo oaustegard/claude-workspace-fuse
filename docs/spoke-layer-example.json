@@ -1,0 +1,4 @@
+{
+  "_comment": "Example spoke-level container-layer manifest. Drop a file like this at .spokes/<name>/.claude/container-layers.json to declare extra layers that should be restored on top of the hub composition. Order matters — earlier entries restored first, later ones can overwrite. Names resolve to <spoke>/layers/Containerfile.<name> first (spoke-defined layer) then fall back to <hub>/layers/Containerfile.<name> (hub-defined layer the spoke just wants opted in). Run: python3 scripts/apply_spoke_layers.py .spokes/<name>",
+  "extra": ["julia-sr"]
+}
