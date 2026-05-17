@@ -5,7 +5,14 @@
 #
 # Drop from .claude/container-layers.json for sessions that never touch
 # torch — saves ~100MB compressed download per cold boot.
-# cache-bust: 2026-05-17
+#
+# The 2026-05-17 build pre-dated bf52f5e's SNAPSHOT-diff fix, so its
+# tarball captured the entire post-base dist-packages tree (~666MB,
+# byte-identical to the original fat scientific and fuse). The cached
+# blob silently carried pysr + mojo + other monolithic-layer crud back
+# into every session, defeating the manifest. Re-cut here against the
+# current diff-aware skill (issue #20, Test 2 FAIL diagnostic).
+# cache-bust: 2026-05-17b
 
 # CPU-only build — no CUDA, ~200MB vs ~2GB for GPU build.
 RUN uv pip install --system --break-system-packages torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
