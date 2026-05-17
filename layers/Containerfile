@@ -9,7 +9,17 @@
 #
 # Heavy/optional deps live in sibling Containerfile.<name> files, opted into
 # per session via .claude/container-layers.json. See CLAUDE.md.
-# cache-bust: 2026-05-17
+#
+# The 2026-05-17 build pre-dated bf52f5e's SNAPSHOT-diff fix, so its
+# tarball captured the entire post-install dist-packages tree (~679MB)
+# instead of just httpx + libsql (~few MB). The cached blob silently
+# carried pysr + mojo + torch + other CCotw-base-image crud into every
+# session — which defeated PR #23's slim re-cut of torch-cpu/fuse:
+# those layers' RUN steps detected packages already on disk from base
+# and produced empty diffs, so neither slim layer ever published. Re-cut
+# here against the current diff-aware skill (issue #20, Test 2 FAIL
+# diagnostic round 2). Expected slim size: <50 MB.
+# cache-bust: 2026-05-17b
 
 RUN uv pip install --system --break-system-packages httpx libsql-experimental
 
