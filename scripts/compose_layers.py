@@ -79,14 +79,19 @@ def _read_manifest() -> tuple[list[Path], bool]:
 
 
 def _cli(*args: str, capture: bool = False) -> str:
+    # Pass GH_TOKEN via env, NOT --token argv. CalledProcessError stringifies
+    # the full argv, so any failure with --token in argv leaks the PAT into
+    # the rebuild log (which the UserPromptSubmit hook surfaces back into the
+    # model's context). The skill's cli.py defaults --token to $GH_TOKEN.
     cmd = [
         sys.executable, "-m", "scripts.cli",
-        "--token", GH_TOKEN, "--repo", CACHE_REPO,
+        "--repo", CACHE_REPO,
         *args,
     ]
+    env = {**os.environ, "GH_TOKEN": GH_TOKEN}
     if capture:
-        return subprocess.check_output(cmd, cwd=SKILL_DIR).decode().strip()
-    subprocess.check_call(cmd, cwd=SKILL_DIR)
+        return subprocess.check_output(cmd, cwd=SKILL_DIR, env=env).decode().strip()
+    subprocess.check_call(cmd, cwd=SKILL_DIR, env=env)
     return ""
 
 
