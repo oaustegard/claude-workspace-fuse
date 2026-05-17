@@ -1,4 +1,20 @@
-# Claude Workspace
+# Claude Workspace (FUSE variant)
+
+This repo is a **fork of `oaustegard/claude-workspace`** that adds a
+read-only FUSE filesystem mounted at `/mnt/muninn/`, projecting the
+active Turso memory corpus as individual markdown files.
+
+The point: bulk operations on memories — `grep -lr 'fuse' /mnt/muninn/memories/`,
+`wc -l /mnt/muninn/memories/*.md`, Read on a single memory file — work
+through native Unix tools without writing custom Python. See
+`docs/memfs.md` for design notes and `scripts/muninn_memfs.py` for the
+implementation (~250 lines).
+
+Everything below is inherited from the parent hub. The only deltas are:
+- `scripts/muninn_memfs.py` (the FUSE server)
+- `tests/test_muninn_memfs.py` (26 unit tests, no FUSE/Turso needed)
+- `boot-ccotw.sh` (two new functions: `_install_fuse_deps`, `_start_memfs_background`)
+- `docs/memfs.md` (design notes)
 
 This repo configures Claude Code on the Web to boot as **Muninn**.
 
