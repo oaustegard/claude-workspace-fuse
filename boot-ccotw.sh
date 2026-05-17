@@ -42,14 +42,15 @@ _ttotal() {
 
 _detect_containerfile_drift() {
     local skill_dir="/tmp/_container_layer"
-    [ -f "$CONTAINERFILE" ] || return 0
     [ -f "/tmp/.containerfile-hash" ] || return 0
     [ -f "$skill_dir/scripts/cli.py" ] || return 0
+    # Manifest-driven OR legacy Containerfile — compose_layers.py handles both
+    [ -f "$PROJECT_DIR/.claude/container-layers.json" ] || [ -f "$CONTAINERFILE" ] || return 0
     local current cached
-    current=$(cd "$skill_dir" && python3 -m scripts.cli hash "$CONTAINERFILE" 2>/dev/null)
+    current=$(cd "$PROJECT_DIR" && python3 scripts/compose_layers.py hash 2>/dev/null)
     cached=$(cat /tmp/.containerfile-hash)
     if [ -n "$current" ] && [ "$current" != "$cached" ]; then
-        echo "  ⚠ Containerfile drift detected — rebuilding layer in background"
+        echo "  ⚠ Container layer drift detected — rebuilding in background"
         # Truncate the log AND drop the rebuild-status cursor so the
         # UserPromptSubmit hook (`scripts/rebuild-status.sh`) emits this
         # run's events from byte 0 instead of inheriting an old offset.
@@ -251,18 +252,18 @@ _link_slash_skills() {
     echo "  ✓ Linked $linked slash skills into $target_dir"
 }
 
-_install_fuse_deps() {
-    # FUSE userspace (libfuse2 + fusermount) and fusepy bindings are now
-    # baked into the Containerfile. This function stays as a fallback
-    # for the transition window where the cached layer hasn't been
-    # rebuilt yet (cache-bust 2026-05-17 in Containerfile).
+_verify_fuse_deps() {
+    # FUSE Python bindings now ship in `layers/Containerfile.fuse` (cached as
+    # `layer-fuse-<hash>`). libfuse2 + fusermount have always been in the base
+    # container image. This function is a verification-only fallback: it warns
+    # if the fuse layer hasn't warmed up yet for this session so memfs failures
+    # have a clear pointer rather than mysterious ImportError tracebacks.
     local missing=0
     command -v fusermount >/dev/null 2>&1 || missing=1
     python3 -c "import fuse" 2>/dev/null || missing=1
     [ "$missing" -eq 0 ] && return 0
-    echo "  ! FUSE deps missing (pre-rebuild layer); installing as fallback..."
-    apt-get install -y --no-install-recommends libfuse2 fuse >/dev/null 2>&1 || true
-    pip install --quiet --break-system-packages fusepy >/dev/null 2>&1 || true
+    echo "  ! FUSE deps missing — fuse layer cache may not have warmed yet."
+    echo "    Memfs mount will likely fail; re-run boot or rebuild layer cache."
 }
 
 _start_memfs_background() {
@@ -310,7 +311,7 @@ if [ -f "$MARKER" ]; then
     _tmark "muninn_utilities"
     _setup_python_paths
     _tmark "python_paths"
-    _install_fuse_deps
+    _verify_fuse_deps
     _tmark "fuse_deps"
     _start_memfs_background
     _tmark "memfs_start"
@@ -349,26 +350,18 @@ if [ ! -f "$SKILL_DIR/scripts/containerfile.py" ]; then
 fi
 _tmark "bootstrap"
 
-# Apply the Containerfile (system packages, tools — no skills)
-if [ -f "$CONTAINERFILE" ] && [ -f "$SKILL_DIR/scripts/containerfile.py" ]; then
-    echo "Applying container layer: $CONTAINERFILE"
-
-    cd "$SKILL_DIR"
-    python3 -m scripts.cli \
-        --token "${GH_TOKEN:-}" \
-        --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
-        restore "$CONTAINERFILE" 2>&1
-    # Record Containerfile hash at boot for change detection on session end
-    python3 -m scripts.cli \
-        --token "${GH_TOKEN:-}" \
-        --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
-        hash "$CONTAINERFILE" \
-        2>/dev/null > /tmp/.containerfile-hash || true
-    cd - > /dev/null
-
-    echo "✓ Container layer applied"
+# Apply composable container layers per .claude/container-layers.json
+# (or fall back to legacy single Containerfile if no manifest exists yet).
+if [ -f "$SKILL_DIR/scripts/containerfile.py" ]; then
+    if [ -f "$PROJECT_DIR/.claude/container-layers.json" ] || [ -f "$CONTAINERFILE" ]; then
+        echo "Applying container layers..."
+        (cd "$PROJECT_DIR" && python3 scripts/compose_layers.py apply 2>&1)
+        echo "✓ Container layers applied"
+    else
+        echo "No manifest at .claude/container-layers.json and no Containerfile — skipping."
+    fi
 else
-    echo "No Containerfile found at $CONTAINERFILE — skipping."
+    echo "container-layer skill not bootstrapped — skipping."
 fi
 _tmark "container_layer"
 
@@ -381,7 +374,7 @@ _fetch_muninn_utilities
 _tmark "muninn_utilities"
 _setup_python_paths
 _tmark "python_paths"
-_install_fuse_deps
+_verify_fuse_deps
 _tmark "fuse_deps"
 _start_memfs_background
 _tmark "memfs_start"

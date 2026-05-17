@@ -13,7 +13,7 @@ if command -v mojo >/dev/null 2>&1; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CONTAINERFILE="$REPO_ROOT/Containerfile.mojo"
+CONTAINERFILE="$REPO_ROOT/layers/Containerfile.mojo"
 SKILL_DIR="/tmp/_container_layer"
 
 if [ ! -f "$SKILL_DIR/scripts/cli.py" ]; then
@@ -29,8 +29,7 @@ cd "$SKILL_DIR"
 python3 -m scripts.cli \
     --token "${GH_TOKEN:-}" \
     --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
-    --invalidate-on oaustegard/claude-workspace-fuse \
-    restore "$CONTAINERFILE"
+    restore "$CONTAINERFILE" --name mojo
 
 t1=$(date +%s)
 echo "✓ mojo restored in $((t1 - t0))s: $(mojo --version 2>&1 | head -1)"

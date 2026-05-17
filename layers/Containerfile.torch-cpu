@@ -1,0 +1,13 @@
+# PyTorch CPU-only (~200MB).
+# Cached as `layer-torch-cpu-<hash>`.
+# In the hub default composition (used by enough ML-adjacent work to
+# justify always-on; cost is low post-cache-warmup).
+#
+# Drop from .claude/container-layers.json for sessions that never touch
+# torch — saves ~100MB compressed download per cold boot.
+# cache-bust: 2026-05-17
+
+# CPU-only build — no CUDA, ~200MB vs ~2GB for GPU build.
+RUN uv pip install --system --break-system-packages torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+SNAPSHOT /usr/local/lib/python3.11/dist-packages

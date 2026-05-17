@@ -1,0 +1,18 @@
+# Scientific Python core + tree-sitter language pack.
+# Cached as `layer-scientific-<hash>`.
+# In the hub default composition because many skills depend on it
+# (charting, exploring-data, forecasting-reverso, mapping-codebases,
+# tree-sitting, etc.).
+# cache-bust: 2026-05-17
+
+# scipy/sklearn/pandas together pull ~55MB of wheels + transitive deps;
+# baking them in avoids re-downloading every session.
+RUN uv pip install --system --break-system-packages scipy scikit-learn pandas
+
+# tree-sitter for codebase-exploration skills (exploring-codebases,
+# tree-sitting, mapping-codebases). Pin <1.6.3 — the 1.6.3 wheel ships
+# only _native/, missing the python module (ModuleNotFoundError on import).
+# Pulls in tree-sitter as a transitive dep.
+RUN uv pip install --system --break-system-packages 'tree-sitter-language-pack<1.6.3'
+
+SNAPSHOT /usr/local/lib/python3.11/dist-packages

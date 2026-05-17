@@ -1,0 +1,4 @@
+{
+  "_comment": "Hub default + fuse for the memfs mount.",
+  "layers": ["base", "scientific", "torch-cpu", "fuse"]
+}

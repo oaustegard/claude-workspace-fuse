@@ -16,7 +16,7 @@ if python3 -c "import pysr" 2>/dev/null; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CONTAINERFILE="$REPO_ROOT/Containerfile.pysr"
+CONTAINERFILE="$REPO_ROOT/layers/Containerfile.julia-sr"
 SKILL_DIR="/tmp/_container_layer"
 
 if [ ! -f "$SKILL_DIR/scripts/cli.py" ]; then
@@ -26,14 +26,13 @@ if [ ! -f "$SKILL_DIR/scripts/cli.py" ]; then
 fi
 
 t0=$(date +%s)
-echo "Restoring PySR addon layer (cache hit: ~30s for ~1GB; cache miss: ~5min)..."
+echo "Restoring PySR / julia-sr addon layer (cache hit: ~30s for ~1GB; cache miss: ~5min)..."
 
 cd "$SKILL_DIR"
 python3 -m scripts.cli \
     --token "${GH_TOKEN:-}" \
     --repo "${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}" \
-    --invalidate-on oaustegard/claude-workspace-fuse \
-    restore "$CONTAINERFILE"
+    restore "$CONTAINERFILE" --name julia-sr
 
 t1=$(date +%s)
 echo "✓ pysr restored in $((t1 - t0))s: $(python3 -c 'import pysr; print(pysr.__version__)')"
