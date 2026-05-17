@@ -5,4 +5,5 @@ __pycache__/
 .spokes/
 .uploads/
 .work/
+.claude/worktrees/
 diagnostics/runs/
