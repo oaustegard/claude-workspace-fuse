@@ -40,9 +40,23 @@ _ttotal() {
 
 # ── Functions ──
 
+_refresh_container_layer_skill() {
+    # Re-fetch /tmp/_container_layer from claude-skills@main. /tmp survives
+    # across sessions in the same container, so a checkout from when the
+    # container was first provisioned would persist and miss newer skill
+    # features (e.g. the `compose` subcommand added in v0.2.0). Cheap:
+    # ~50KB tarball, one curl. Idempotent.
+    local skill_dir="/tmp/_container_layer"
+    rm -rf "$skill_dir"
+    mkdir -p "$skill_dir"
+    curl -sL "https://codeload.github.com/oaustegard/claude-skills/tar.gz/main" \
+        | tar -xz --strip-components=2 -C "$skill_dir" "claude-skills-main/container-layer/" 2>/dev/null
+}
+
 _detect_containerfile_drift() {
     local skill_dir="/tmp/_container_layer"
     [ -f "/tmp/.containerfile-hash" ] || return 0
+    _refresh_container_layer_skill
     [ -f "$skill_dir/scripts/cli.py" ] || return 0
     # Manifest-driven OR legacy Containerfile — compose_layers.py handles both
     [ -f "$PROJECT_DIR/.claude/container-layers.json" ] || [ -f "$CONTAINERFILE" ] || return 0
@@ -335,18 +349,14 @@ _tmark "env_source"
 _wait_for_network
 _tmark "network_wait"
 
-# Bootstrap the container-layer skill from GitHub
 SKILL_DIR="/tmp/_container_layer"
-if [ ! -f "$SKILL_DIR/scripts/containerfile.py" ]; then
-    echo "Bootstrapping container-layer..."
-    mkdir -p "$SKILL_DIR"
-    if curl -sL "https://codeload.github.com/oaustegard/claude-skills/tar.gz/main" \
-        | tar -xz --strip-components=2 -C "$SKILL_DIR" "claude-skills-main/container-layer/" 2>/dev/null; then
-        echo "  ✓ container-layer skill loaded"
-    else
-        echo "  ✗ bootstrap failed (check network/token)"
-        exit 1
-    fi
+echo "Fetching container-layer skill..."
+_refresh_container_layer_skill
+if [ -f "$SKILL_DIR/scripts/containerfile.py" ]; then
+    echo "  ✓ container-layer skill loaded"
+else
+    echo "  ✗ bootstrap failed (check network/token)"
+    exit 1
 fi
 _tmark "bootstrap"
 

@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # Extract the printf invocation from Containerfile and run it to materialize
 # the loader. This guarantees the test exercises exactly what gets baked into
 # the snapshot — any drift between Containerfile and test fails here.
-loader_cmd=$(grep -n 'printf .* /etc/profile.d/muninn-env.sh' "$SCRIPT_DIR/Containerfile" \
+loader_cmd=$(grep -n 'printf .* /etc/profile.d/muninn-env.sh' "$SCRIPT_DIR/layers/Containerfile" \
     | head -1 | sed 's/^[0-9]*:RUN //; s| > /etc/profile.d/muninn-env.sh.*||')
 if [ -z "$loader_cmd" ]; then
     echo "FAIL: could not locate loader printf in Containerfile"
@@ -72,11 +72,11 @@ if [ "$output" != "A=alpha" ]; then
 fi
 
 # ── Case 5: Containerfile registers BASH_ENV and snapshots the loader/env
-grep -q '^RUN .*BASH_ENV=/etc/profile.d/muninn-env.sh' "$SCRIPT_DIR/Containerfile" \
+grep -q '^RUN .*BASH_ENV=/etc/profile.d/muninn-env.sh' "$SCRIPT_DIR/layers/Containerfile" \
     || { echo "FAIL: Containerfile missing BASH_ENV registration"; exit 1; }
-grep -q '^SNAPSHOT /etc/profile.d/muninn-env.sh' "$SCRIPT_DIR/Containerfile" \
+grep -q '^SNAPSHOT /etc/profile.d/muninn-env.sh' "$SCRIPT_DIR/layers/Containerfile" \
     || { echo "FAIL: Containerfile missing SNAPSHOT for env loader"; exit 1; }
-grep -q '^SNAPSHOT /etc/environment' "$SCRIPT_DIR/Containerfile" \
+grep -q '^SNAPSHOT /etc/environment' "$SCRIPT_DIR/layers/Containerfile" \
     || { echo "FAIL: Containerfile missing SNAPSHOT for /etc/environment"; exit 1; }
 
 echo "PASS: muninn-env loader sources /mnt/project/*.env and exports to children"
