@@ -252,15 +252,15 @@ _link_slash_skills() {
 }
 
 _install_fuse_deps() {
-    # FUSE userspace (libfuse2 + fusermount) and fusepy bindings. Cheap
-    # apt/pip installs (~5s combined cold; instant once cached on the
-    # container layer's filesystem). Kept here instead of in the
-    # Containerfile because this fork is an experiment — easier to iterate
-    # in-repo than to bake into the cached layer tarball.
+    # FUSE userspace (libfuse2 + fusermount) and fusepy bindings are now
+    # baked into the Containerfile. This function stays as a fallback
+    # for the transition window where the cached layer hasn't been
+    # rebuilt yet (cache-bust 2026-05-17 in Containerfile).
     local missing=0
     command -v fusermount >/dev/null 2>&1 || missing=1
     python3 -c "import fuse" 2>/dev/null || missing=1
     [ "$missing" -eq 0 ] && return 0
+    echo "  ! FUSE deps missing (pre-rebuild layer); installing as fallback..."
     apt-get install -y --no-install-recommends libfuse2 fuse >/dev/null 2>&1 || true
     pip install --quiet --break-system-packages fusepy >/dev/null 2>&1 || true
 }
