@@ -2,7 +2,7 @@
 # Always-on base: tools every session benefits from.
 # Heavy/optional deps (mojo, pytorch, pysr) are on-demand via scripts/install-*.sh.
 # Skills are fetched fresh at session start, not cached here.
-# cache-bust: 2026-05-17c
+# cache-bust: 2026-05-17d
 
 # Purge heavy deps that may be present from a prior cached layer.
 # The container-layer skill snapshots /usr/local/lib/python3.11/dist-packages
@@ -31,6 +31,24 @@ RUN uv pip install --system --break-system-packages scipy scikit-learn pandas
 # tree-sitting, mapping-codebases).  Pin <1.6.3 — the 1.6.3 wheel ships
 # only _native/, missing the python module (ModuleNotFoundError on import).
 RUN uv pip install --system --break-system-packages 'tree-sitter-language-pack<1.6.3'
+
+# Pre-fetch the tree-sitter grammar cache (issue #11). The package's native
+# Rust downloader uses rustls with its own root store, which doesn't trust
+# the Anthropic sandbox-egress TLS-inspection CA — so first-use get_language()
+# fails at runtime with "invalid peer certificate: UnknownIssuer". curl
+# trusts the system CA bundle (which does include the interception CA), so
+# we fetch the platform tarball directly and extract into the expected cache
+# layout. download_all() can't be used because it hits the same TLS path
+# that fails at runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends zstd && rm -rf /var/lib/apt/lists/*
+RUN TSLP_VER=$(python3 -c "import tree_sitter_language_pack as t; print(t.cache_dir().rstrip('/').rsplit('/',2)[-2])") \
+    && TSLP_CACHE="/root/.cache/tree-sitter-language-pack/${TSLP_VER}" \
+    && mkdir -p "${TSLP_CACHE}/libs" \
+    && curl -fsSL "https://github.com/kreuzberg-dev/tree-sitter-language-pack/releases/download/${TSLP_VER}/parsers.json" -o "${TSLP_CACHE}/parsers.json" \
+    && curl -fsSL "https://github.com/kreuzberg-dev/tree-sitter-language-pack/releases/download/${TSLP_VER}/parsers-linux-x86_64.tar.zst" -o /tmp/parsers.tar.zst \
+    && tar --use-compress-program=unzstd -xf /tmp/parsers.tar.zst -C "${TSLP_CACHE}/libs" \
+    && rm /tmp/parsers.tar.zst \
+    && python3 -c "from tree_sitter_language_pack import get_language; assert get_language('python'), 'cache verification failed'; print('tree-sitter cache verified')"
 
 # FUSE userspace (libfuse2 + fusermount) is already in the base container
 # image — we only need the fusepy Python bindings. Don't `apt-get install
@@ -61,5 +79,6 @@ SNAPSHOT /home/user/setup.sh
 SNAPSHOT /usr/local/bin/gh
 SNAPSHOT /etc/profile.d/muninn-env.sh
 SNAPSHOT /etc/environment
+SNAPSHOT /root/.cache/tree-sitter-language-pack
 
 WORKDIR /home/user
