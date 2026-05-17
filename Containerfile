@@ -2,7 +2,21 @@
 # Always-on base: tools every session benefits from.
 # Heavy/optional deps (mojo, pytorch, pysr) are on-demand via scripts/install-*.sh.
 # Skills are fetched fresh at session start, not cached here.
-# cache-bust: 2026-05-17b
+# cache-bust: 2026-05-17c
+
+# Purge heavy deps that may be present from a prior cached layer.
+# The container-layer skill snapshots /usr/local/lib/python3.11/dist-packages
+# and /usr/local/bin by *final state*, not by RUN-command output — so a build
+# happening in a container that already has torch/mojo/pysr installed will
+# include them in the snapshot even when this Containerfile doesn't install
+# them. Explicit removal is the only way to ensure the slim layer is truly slim.
+# Addons live in their own cached layers (Containerfile.{mojo,pytorch,pysr}).
+RUN uv pip uninstall --system --break-system-packages -y \
+    torch torchvision torchaudio \
+    pysr juliapkg \
+    modular mojo max mojo-compiler mojo-lldb-libs \
+    2>/dev/null || true
+RUN rm -rf /root/.julia /usr/local/bin/mojo /usr/local/bin/mojo-lldb /usr/local/bin/mojo-lsp-server
 
 # Always-on Python deps
 RUN uv pip install --system --break-system-packages httpx libsql-experimental
