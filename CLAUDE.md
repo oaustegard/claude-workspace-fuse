@@ -12,11 +12,12 @@ implementation (~250 lines).
 
 Everything below is inherited from the parent hub. The only deltas are:
 - `scripts/muninn_memfs.py` (the FUSE server)
-- `scripts/install-{mojo,pytorch,pysr}.sh` (on-demand heavy-dep installers)
+- `scripts/install-{mojo,pytorch,pysr}.sh` (on-demand heavy-dep installers; pytorch is a fallback since `torch-cpu` is in the default layer composition)
 - `tests/test_muninn_memfs.py` (26 unit tests, no FUSE/Turso needed)
-- `boot-ccotw.sh` (two new functions: `_install_fuse_deps` fallback, `_start_memfs_background`)
+- `boot-ccotw.sh` (two extra functions: `_verify_fuse_deps` warning fallback, `_start_memfs_background` for the memfs mount)
+- `layers/Containerfile.fuse` (adds `fusepy`; cached as `layer-fuse-<hash>`)
+- `.claude/container-layers.json` (`["base", "scientific", "torch-cpu", "fuse"]` — parent default + fuse)
 - `docs/memfs.md` (design notes)
-- `Containerfile` is slimmer than the parent's: FUSE deps baked in, but Mojo/PyTorch/PySR stripped out and moved to on-demand installers (see below).
 
 ## Reach for /mnt/muninn first
 
@@ -39,16 +40,18 @@ relevant to the scanner.cc-doesn't-link discovery that got re-done from scratch.
 The mount is read-only by design; for writes still use `remember()` from the
 remembering skill (HTTP path to Turso).
 
-## Heavy deps on demand (per-addon cached layers)
+## Heavy deps on demand (opt-in cached layers)
 
-The cached container layer is slim by design — only what every session needs.
-Mojo, PyTorch, and PySR live in their **own cached layers**, each keyed by
-the content hash of their `Containerfile.<addon>`. Restore on demand:
+The composition in `.claude/container-layers.json` is the always-on slate
+(`base`, `scientific`, `torch-cpu`, `fuse`). Heavier optional layers stay
+out of the default and restore on demand. Each one is its own cached layer
+(`layer-<name>-<hash>`); add it to the manifest to always-on it, or invoke
+the installer when a session needs it ad-hoc:
 
 | Tool | Trigger | Restore command | Cache hit | Cache miss (build + push) |
 |---|---|---|---|---|
 | Mojo | Any `.mojo` file, `mojo` CLI, fusemojo/tree-sitter-mojo work | `scripts/install-mojo.sh` | ~30s download+extract | ~3 min one-time, then cached for everyone |
-| PyTorch | `import torch`, model training/inference, tensors | `scripts/install-pytorch.sh` | ~20s | ~2 min one-time |
+| PyTorch (fallback) | `import torch` when `torch-cpu` was dropped from the manifest | `scripts/install-pytorch.sh` | ~20s | ~2 min one-time |
 | PySR | `import pysr`, eml-sr spoke, SymbolicRegression.jl | `scripts/install-pysr.sh` | ~30s (incl. precompiled `/root/.julia`) | ~5 min one-time |
 
 Each installer is idempotent — returns instantly when the tool is already
@@ -56,13 +59,15 @@ present. Run it *before* the first command that needs the tool; don't wait
 for `import` to fail.
 
 The cache lives in [oaustegard/claude-container-layers](https://github.com/oaustegard/claude-container-layers)
-as GitHub Releases (one per content hash). First invocation of a given
-`Containerfile.<addon>` pays the build cost and pushes the tarball; every
-subsequent invocation (anyone, any session) is a cache hit.
+as GitHub Releases (one per `layer-<name>-<hash>`). First invocation of a
+given layer pays the build cost and pushes the tarball; every subsequent
+invocation (anyone, any session) is a cache hit.
 
-**Always-on (in `Containerfile`, always cached):** scipy, scikit-learn, pandas,
-tree-sitter-language-pack, httpx, libsql-experimental, FUSE userspace+bindings,
-gh CLI, the env-source shim.
+**Always-on (default composition, always cached):**
+- `base` — httpx, libsql-experimental, gh CLI, env-source shim
+- `scientific` — scipy, scikit-learn, pandas, tree-sitter-language-pack
+- `torch-cpu` — PyTorch CPU-only build
+- `fuse` — `fusepy` Python bindings (libfuse2 + fusermount are already in the base container image)
 
 **Why not fresh `pip install`?** Network round-trips + dependency resolution
 + wheel-by-wheel installation = minutes even when the bytes are small.
@@ -76,12 +81,14 @@ This repo configures Claude Code on the Web to boot as **Muninn**.
 
 The `SessionStart` hook in `.claude/settings.json` runs `boot-ccotw.sh`, which:
 1. Bootstraps the container-layer skill from `oaustegard/claude-skills`
-2. Applies the `Containerfile` — installing system packages and Python deps (cached as a tarball in GitHub Releases)
+2. Reads `.claude/container-layers.json` and **composes** the listed layers (`base`, `scientific`, `torch-cpu`, `fuse` by default) via `scripts/compose_layers.py apply`. Each layer is cached independently in GitHub Releases as `layer-<name>-<hash>`, so changing one layer doesn't invalidate the others. Falls back to legacy single-`Containerfile` mode if no manifest exists.
 3. Fetches skills fresh from `oaustegard/claude-skills` via tarball (always current, never cached in the container layer)
 4. Tarballs `oaustegard/muninn-utilities` and overlays `remembering/` into `/mnt/skills/user/remembering/` (replacing the deprecated mirror that claude-skills still ships) and `muninn_utils/*.py` into `~/muninn_utils/`. Public repo — no `GH_TOKEN` required.
 5. Sets up Python paths for the remembering skill (now sourced from muninn-utilities)
-6. Outputs `<available_skills>` XML frontmatter into the context window
-7. Runs `post-boot.sh`, which calls `boot()` from the muninn-utilities-installed remembering — loads the Muninn identity, profile, ops, and recent memories from Turso
+6. Verifies FUSE deps (`fusermount`, `import fuse`) — warns if missing because the `fuse` layer cache hasn't warmed yet for this session
+7. Starts `scripts/muninn_memfs.py` in the background, mounting the Turso memory corpus at `/mnt/muninn/`
+8. Outputs `<available_skills>` XML frontmatter into the context window
+9. Runs `post-boot.sh`, which calls `boot()` from the muninn-utilities-installed remembering — loads the Muninn identity, profile, ops, and recent memories from Turso
 
 Three deliberately separated layers:
 - **Container layer** (cached): slow-to-install system packages, CLI tools, Python libs
@@ -301,7 +308,41 @@ See `/mnt/skills/user/tree-sitting/SKILL.md` for the full query reference.
 
 ## Customizing
 
-Edit `Containerfile` to change what system packages and Python deps get installed.
-The format is a Dockerfile subset: `FETCH`, `RUN`, `ENV`, `WORKDIR`, `SNAPSHOT`.
+### Layer composition (default mechanism)
 
-Skills are managed in `oaustegard/claude-skills` — not in the Containerfile.
+Each capability area lives in its own `layers/Containerfile.<name>`, cached as `layer-<name>-<hash>` in `oaustegard/claude-container-layers`. The session reads `.claude/container-layers.json` to decide which layers to compose:
+
+```json
+{
+  "layers": ["base", "scientific", "torch-cpu", "fuse"]
+}
+```
+
+This fork's default composition is the parent hub's default (`base`, `scientific`, `torch-cpu`) plus `fuse` for the memfs mount.
+
+Available opt-in layers (add to the JSON to always-on them):
+- `mojo` — Mojo toolchain (~550MB), for fusemojo / tree-sitter-mojo work
+- `julia-sr` — PySR + Julia 1.10 + SymbolicRegression.jl precompile (~1GB), for eml-sr work
+
+Each layer's `Containerfile.<name>` uses the same Dockerfile-subset format: `FETCH`, `RUN`, `ENV`, `WORKDIR`, `SNAPSHOT`. Bump the `cache-bust:` comment to force a layer rebuild on next session.
+
+### How composition works
+
+`scripts/compose_layers.py` reads the manifest, resolves each name to `layers/Containerfile.<name>` (or `layers/Containerfile` for `base`), and invokes the container-layer skill's `compose` API. Each layer hits its own cache key, so changing `torch-cpu` doesn't invalidate `base` or `fuse`. The composite hash is written to `/tmp/.containerfile-hash` for drift detection.
+
+To inspect what would be composed without applying:
+```bash
+python3 scripts/compose_layers.py inspect
+```
+
+### Legacy fallback
+
+If `.claude/container-layers.json` is absent but a root-level `Containerfile` exists, the boot falls back to single-layer mode. This fork ships a manifest, so this path is dormant — it's there for downstream forks that haven't migrated yet.
+
+### Adding a new layer
+
+1. Create `layers/Containerfile.<name>` with the RUN/SNAPSHOT directives
+2. Add `<name>` to the `layers` list in `.claude/container-layers.json`
+3. Next session boot rebuilds the missing layer once, then caches it for subsequent sessions everywhere
+
+Skills are managed in `oaustegard/claude-skills` — not in any Containerfile.

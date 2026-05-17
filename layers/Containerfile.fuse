@@ -1,0 +1,7 @@
+# FUSE Python bindings (libfuse2 + fusermount are already in base container).
+# Cached as layer-fuse-<hash>.
+# cache-bust: 2026-05-17
+
+RUN uv pip install --system --break-system-packages fusepy
+
+SNAPSHOT /usr/local/lib/python3.11/dist-packages

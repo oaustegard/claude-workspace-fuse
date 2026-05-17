@@ -1,0 +1,16 @@
+# PySR + Julia 1.10 + SymbolicRegression.jl precompile (~1GB total).
+# Cached as `layer-julia-sr-<hash>`.
+# NOT in the hub default composition — opt-in for eml-sr spoke work.
+#
+# Julia 1.11 segfaults on SymbolicRegression.jl precompile under gVisor
+# (kernel 4.4.0 / runsc); pin to Julia 1.10 which precompiles cleanly.
+# The cached /root/.julia tree is the expensive part — without it,
+# every session pays the 5-minute Julia bootstrap.
+# cache-bust: 2026-05-17
+
+RUN uv pip install --system --break-system-packages pysr
+RUN python3 -c "import juliapkg; juliapkg.require_julia('~1.10'); juliapkg.resolve(force=True)"
+RUN python3 -c "import pysr"  # triggers SymbolicRegression.jl precompile
+
+SNAPSHOT /usr/local/lib/python3.11/dist-packages
+SNAPSHOT /root/.julia

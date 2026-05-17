@@ -13,7 +13,9 @@
 #   SKIP reason=<short-tag>
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
-CONTAINERFILE="$(cd "$PROJECT_DIR" && pwd)/Containerfile"
+PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
+MANIFEST="$PROJECT_DIR/.claude/container-layers.json"
+CONTAINERFILE="$PROJECT_DIR/Containerfile"
 SKILL_DIR="/tmp/_container_layer"
 HASH_FILE="/tmp/.containerfile-hash"
 LOG="/tmp/.rebuild-layer.log"
@@ -39,7 +41,14 @@ fi
 # never means success.
 trap '[ "$?" -eq 0 ] || _emit "FAIL reason=unexpected-exit"' EXIT
 
-_emit "START containerfile=$CONTAINERFILE"
+# Identify trigger source for logging
+if [ -f "$MANIFEST" ]; then
+    _emit "START manifest=$MANIFEST"
+elif [ -f "$CONTAINERFILE" ]; then
+    _emit "START containerfile=$CONTAINERFILE (legacy)"
+else
+    _fail "no-manifest-no-containerfile"
+fi
 
 for envfile in "$PROJECT_DIR"/.env "$PROJECT_DIR"/*.env /mnt/project/*.env; do
     [ -f "$envfile" ] && { set -a; . "$envfile" 2>/dev/null; set +a; } || true
@@ -50,7 +59,6 @@ if [ -z "${GH_TOKEN:-}" ]; then
     trap - EXIT
     exit 0
 fi
-[ -f "$CONTAINERFILE" ] || _fail "no-containerfile"
 
 if [ ! -f "$SKILL_DIR/scripts/containerfile.py" ]; then
     _emit "BOOTSTRAP"
@@ -63,18 +71,11 @@ fi
 REPO="${LAYER_CACHE_REPO:-oaustegard/claude-container-layers}"
 _emit "RESTORE repo=$REPO"
 
-cd "$SKILL_DIR"
-python3 -m scripts.cli \
-    --token "${GH_TOKEN}" \
-    --repo "$REPO" \
-    restore "$CONTAINERFILE" || _fail "restore"
+# compose_layers.py handles both manifest-driven multi-layer and legacy
+# single-Containerfile cases. It writes the composite hash to $HASH_FILE.
+LAYER_CACHE_REPO="$REPO" python3 "$PROJECT_DIR/scripts/compose_layers.py" apply || _fail "apply"
 
-# Update hash file so subsequent triggers are no-ops until next change
-new_hash=$(python3 -m scripts.cli \
-    --token "${GH_TOKEN}" \
-    --repo "$REPO" \
-    hash "$CONTAINERFILE" 2>/dev/null) || true
-[ -n "$new_hash" ] && echo "$new_hash" > "$HASH_FILE"
+new_hash=$(cat "$HASH_FILE" 2>/dev/null || true)
 
 touch /tmp/.container-layer-booted
 _emit "DONE hash=${new_hash:-unknown}"
