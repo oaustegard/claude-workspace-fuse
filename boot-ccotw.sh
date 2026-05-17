@@ -251,6 +251,37 @@ _link_slash_skills() {
     echo "  ✓ Linked $linked slash skills into $target_dir"
 }
 
+_install_fuse_deps() {
+    # FUSE userspace (libfuse2 + fusermount) and fusepy bindings. Cheap
+    # apt/pip installs (~5s combined cold; instant once cached on the
+    # container layer's filesystem). Kept here instead of in the
+    # Containerfile because this fork is an experiment — easier to iterate
+    # in-repo than to bake into the cached layer tarball.
+    local missing=0
+    command -v fusermount >/dev/null 2>&1 || missing=1
+    python3 -c "import fuse" 2>/dev/null || missing=1
+    [ "$missing" -eq 0 ] && return 0
+    apt-get install -y --no-install-recommends libfuse2 fuse >/dev/null 2>&1 || true
+    pip install --quiet --break-system-packages fusepy >/dev/null 2>&1 || true
+}
+
+_start_memfs_background() {
+    # Mount the Muninn memory FUSE filesystem at /mnt/muninn — read-only
+    # projection of the active Turso memories. Bootstrap pull runs inside
+    # the FUSE process (~700ms) and is hidden behind CCotw's own startup
+    # dead time. Idempotent: skipped if already mounted in this container.
+    local mount_point="/mnt/muninn"
+    if mountpoint -q "$mount_point" 2>/dev/null; then
+        echo "  ✓ memfs already mounted at $mount_point"
+        return 0
+    fi
+    local script="$PROJECT_DIR/scripts/muninn_memfs.py"
+    [ -f "$script" ] || { echo "  ✗ memfs script missing: $script"; return 0; }
+    mkdir -p "$mount_point"
+    nohup python3 "$script" "$mount_point" </dev/null >/tmp/.muninn-memfs.log 2>&1 &
+    echo "  ✓ memfs mount kicked off (pid $!, log /tmp/.muninn-memfs.log)"
+}
+
 _source_env() {
     # Source from project dir
     for envfile in "$PROJECT_DIR"/*.env "$PROJECT_DIR"/.env; do
@@ -279,6 +310,10 @@ if [ -f "$MARKER" ]; then
     _tmark "muninn_utilities"
     _setup_python_paths
     _tmark "python_paths"
+    _install_fuse_deps
+    _tmark "fuse_deps"
+    _start_memfs_background
+    _tmark "memfs_start"
     _link_slash_skills
     _tmark "slash_skills"
     _output_skills
@@ -346,6 +381,10 @@ _fetch_muninn_utilities
 _tmark "muninn_utilities"
 _setup_python_paths
 _tmark "python_paths"
+_install_fuse_deps
+_tmark "fuse_deps"
+_start_memfs_background
+_tmark "memfs_start"
 
 touch "$MARKER"
 _output_skills
