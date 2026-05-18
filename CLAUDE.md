@@ -274,9 +274,11 @@ Branch is deterministic per session, so re-running `init` is safe.
 
 ## Reading code: prefer tree-sitter for navigation
 
-The `Read` tool caps at ~25,000 tokens per call (the schema says "up
-to 2000 lines" but the token limit hits first on real code — usually
-around 500–800 lines). That's fine for configs, small files, and
+The `Read` tool caps at ~25,000 tokens per call. The schema says "up
+to 2000 lines" but the token limit usually wins; where it bites depends
+on code density (500–800 lines for type-heavy code with long lines,
+1500–2500 for typical Python/Rust, more for comment-heavy files). That's
+fine for configs, small files, and
 cases where the exact location is already known. For exploring code
 or finding the line range to edit, reach for the `tree-sitting` skill
 first. It parses the whole repo once (~700ms), then answers symbol
@@ -305,6 +307,22 @@ prints the code plus line range). If that's enough context, skip
 re-read.
 
 See `/mnt/skills/user/tree-sitting/SKILL.md` for the full query reference.
+
+## Ground time references before writing them
+
+Before any prose includes "yesterday," "last week," "a few months ago,"
+"recently," or any other duration word, check ground truth:
+
+- `grep -l '<topic>' /mnt/muninn/memories/*.md` — fast (the FUSE mount is the point of this repo)
+- `recall()` over HTTP if the topic doesn't grep well
+- `git log -p <file> | head` for actual edit history of files in the working repo
+- For browser/web events: the page's published timestamp, not your prior
+
+Diagnosed 2026-05-13 (raven-voice rules), recurred 2026-05-17 in the
+tree-sitter post: "a few months ago" was published for fusemojo work that
+was actually yesterday evening. The data was in `/mnt/muninn/memories/`
+the entire time. The pull toward narrative time in RLHF training is strong;
+the empirical timestamp is the only reliable counterweight.
 
 ## Customizing
 
