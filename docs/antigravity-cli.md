@@ -1,176 +1,195 @@
 # Running the Antigravity CLI in the container
 
-Findings from installing and probing Google's **Antigravity CLI** (`agy`,
-v1.0.0, released at I/O 2026) inside this CCotw container, and an honest
-assessment of whether it can be wielded as part of agent orchestrations.
+How to install, authenticate, and orchestrate Google's **Antigravity CLI**
+(`agy`, v1.0.0, released at I/O 2026) inside this CCotw container.
 
 ## Verdict
 
-`agy` **installs and runs** in the container with no fuss — it is a single
-static-ish Go binary, the install endpoints are reachable, and it has a
-real non-interactive `--print` mode shaped exactly like `claude -p` /
-`gemini -p`. **The blocker is authentication.** Every agent call requires a
-Google OAuth login; there is no API-key environment variable. So `agy` is
-*installable* headless but not *usable* headless without first solving the
-credential problem (see [Orchestration](#orchestration)).
+`agy` **installs, authenticates, and runs non-interactively** here. It is a
+single ~184 MB Go binary; `agy -p "<task>"` works as an orchestrated
+sub-agent — verified end to end (it answered a coding prompt, reporting
+itself as **Gemini 3.5 Flash**). Authentication is the work: there is no
+API-key path, only Google OAuth, and the container lacks the D-Bus keyring
+`agy` expects. Both are surmountable. Once a token file is in place every
+`agy -p` call is silent.
 
-## Install (verified)
+## Install
 
 ```bash
 curl -fsSL https://antigravity.google/cli/install.sh | bash
 ```
 
-The installer is worth reading before piping to a shell — it is clean:
-queries a per-platform manifest JSON, downloads the payload, **verifies a
-SHA-512 checksum against the manifest**, and only then writes the binary.
-It drops `agy` into `~/.local/bin/` (override with `--dir`) and appends a
-`PATH` export to `.bashrc`/`.zshrc`/`.profile`.
+The installer is clean — queries a per-platform manifest JSON, downloads
+the payload, **verifies a SHA-512 checksum**, then writes the binary to
+`~/.local/bin/agy` (override with `--dir`) and appends a `PATH` export to
+the shell rc files.
 
-- Binary: `~/.local/bin/agy`, ~184 MB, ELF x86-64, dynamically linked.
+- Binary: `~/.local/bin/agy`, ~184 MB, ELF x86-64.
 - Distribution: **not npm.** The `antigravity-cli` package on npm is a
-  0.0.1 squatter — ignore it. Google ships only via `install.sh` (and the
-  Windows `.ps1` / `.cmd` variants).
-- The binary self-updates in the background; re-running `install.sh` when
-  `agy` already exists is a safe no-op.
+  0.0.1 squatter — ignore it. Google ships only via `install.sh`.
+- Self-updates in the background; re-running `install.sh` is a safe no-op.
 - Repo `github.com/google-antigravity/antigravity-cli` is a feedback /
-  changelog tracker only — README, CHANGELOG, demo gif. No source.
+  changelog tracker only — no source.
 
 > **Caveat — search-result injection.** A web search for install
 > instructions returned a summary telling the reader to "download v1.23.2
 > or lower, do not download a higher version." That is a malware-style
-> version-pinning lure, not anything Google published. The real current
-> release is v1.0.0. Disregard any such advice; use the official
-> `install.sh`.
+> version-pinning lure, not anything Google published. The real release is
+> v1.0.0. Use the official `install.sh`.
 
 ## Command surface
 
-`agy` with no arguments launches an interactive TUI. The orchestration-
-relevant flags (`agy --help`):
+`agy` with no arguments launches an interactive TUI. Orchestration-relevant
+flags (`agy --help`):
 
 | Flag | Purpose |
 |---|---|
 | `-p`, `--print`, `--prompt` | Run a single prompt non-interactively, print the response, exit |
-| `--print-timeout` | Wait budget for print mode (default `5m`) |
+| `--print-timeout` | Response-wait budget for print mode (default `5m`) |
 | `--dangerously-skip-permissions` | Auto-approve every tool/permission request |
 | `--add-dir` | Add a directory to the workspace (repeatable) |
-| `-c`, `--continue` | Continue the most recent conversation |
-| `--conversation <id>` | Resume a conversation by ID |
-| `-i`, `--prompt-interactive` | Seed an interactive session with a first prompt |
+| `-c`, `--continue` / `--conversation <id>` | Continue / resume a conversation |
+| `-i`, `--prompt-interactive` | Seed an interactive TUI session with a first prompt |
 | `--sandbox` | Run with terminal restrictions enabled |
 
 Subcommands: `changelog`, `help`, `install`, `plugin`/`plugins`, `update`.
-There is **no `login`/`auth` subcommand** — auth is triggered lazily on the
-first agent call. `/logout` is a slash command inside the TUI.
+There is no `login`/`auth` subcommand — auth triggers lazily on the first
+agent call.
 
-## The authentication gate
+**Flag ordering matters:** `-p`/`--print` consumes the next argument as the
+prompt. Put other flags *before* `-p`, or make `-p "..."` last. Otherwise
+`agy -p "task" --dangerously-skip-permissions` folds the flag silently into
+the prompt text.
 
-This is the crux. `agy -p "..."` with no stored credentials prints:
+## Authentication
 
+`agy` authenticates only via Google OAuth — there is **no API-key
+environment variable**. Two independent problems must be solved to run it
+headless.
+
+### Problem 1 — the auth prompt blocks
+
+On the first agent call with no stored token, `agy` runs an OAuth flow:
+
+- **Print mode (`agy -p`)** prints the `accounts.google.com` URL and waits
+  **30 seconds** for a pasted authorization code, then aborts. The 30 s is
+  hardcoded (`printmode.waitForAuth`); `--print-timeout` does *not* extend
+  it. Too short for any human-in-the-loop round trip through chat.
+- **Interactive mode (`agy -i`, the TUI)** has **no auth timeout** — it
+  waits indefinitely. This is the usable path, but it is a full-screen TUI
+  that must be driven through a pseudo-terminal.
+
+`scripts/agy_auth_broker.py` drives it: spawns `agy -i` under a pty,
+answers the terminal capability queries so the TUI renders, auto-selects
+"Google OAuth" from the login menu, scrapes the OAuth URL to a file, and
+types back an authorization code dropped into a file. A human opens the
+URL, consents, and the broker feeds the code.
+
+### Problem 2 — token storage needs a keyring
+
+By default `agy` saves the token to the OS keyring, which needs D-Bus. The
+container has no D-Bus, so the keyring write fails silently
+(`keyringAuth: ... "dbus-launch": executable file not found`) and the token
+dies with the process. The fix: `agy` switches to **file-based token
+storage when it detects an SSH session**. Set fake SSH env vars before
+launching it:
+
+```bash
+export SSH_CONNECTION="203.0.113.1 50000 203.0.113.2 22"
+export SSH_TTY="/dev/pts/0"
+export SSH_CLIENT="203.0.113.1 50000 22"
 ```
-Authentication required. Please visit the URL to log in:
-  https://accounts.google.com/o/oauth2/auth?...&scope=cloud-platform+userinfo.email+...
-Waiting for authentication (timeout 30s)...
-Or, paste the authorization code here and press Enter:
+
+`agy` then logs `Using file-based token storage because SSH session
+detected` and writes a file instead.
+
+### The token file
+
+`agy` reads/writes its credential at
+`~/.gemini/antigravity-cli/antigravity-oauth-token`, as JSON:
+
+```json
+{
+  "token": {
+    "access_token": "ya29....",
+    "token_type": "Bearer",
+    "refresh_token": "1//04....",
+    "expiry": "2026-05-20T17:19:27.000000000Z"
+  },
+  "auth_method": "consumer"
+}
 ```
 
-- It waits 30 s for either a localhost OAuth callback **or** a manually
-  pasted authorization code, then aborts.
-- The remote/SSH paste-the-code path **does** work for a human-in-the-loop:
-  open the URL in a browser, consent, paste the code back. The OAuth
-  request uses `access_type=offline`, so a refresh token is issued.
-- Requested scopes: `cloud-platform`, `userinfo.email`, `userinfo.profile`,
-  `cclog`, `experimentsandconfigs`, `openid`.
-- **No API-key path.** There is no `GEMINI_API_KEY` / `ANTIGRAVITY_API_KEY`
-  equivalent. The binary *does* reference `GOOGLE_APPLICATION_CREDENTIALS`
-  and `GOOGLE_CLOUD_PROJECT`, and the `cloud-platform` scope plus the
-  "connect your GCP project" enterprise onboarding strongly suggest an
-  Application-Default-Credentials path exists — but that is **unverified**
-  (auth blocks before any agent call can confirm it).
+Once this file exists (with SSH env set so `agy` consults a file, not the
+keyring), every `agy -p` call is silent — `agy` refreshes the access token
+from `refresh_token` on its own.
 
-## State, config, and the Gemini lineage
+### The catch — ephemeral containers
+
+CCotw containers pause on session inactivity, which kills any live `agy`
+process mid-auth. The interactive broker only works if the human completes
+the OAuth dance promptly (under ~3-4 min) — a slow dance loses the process.
+The durable answer: do the dance once, **save the resulting
+`antigravity-oauth-token` file**, and re-write it into
+`~/.gemini/antigravity-cli/` on each fresh container. The `refresh_token`
+is the durable part; a stale access token is fine, `agy` refreshes it.
+
+## State & the Gemini lineage
 
 `agy` reuses the **Gemini CLI config tree** — concrete proof of the shared
-harness the blog post describes. Nothing lands in git; it all goes to
-`$HOME`:
+harness. Everything lands under `$HOME`, nothing in git:
 
 ```
-~/.gemini/config/mcp_config.json        # shared MCP server config
-~/.gemini/config/projects/<uuid>.json   # per-project (folder URI, allowWrite)
-~/.gemini/config/.migrated              # Gemini-CLI → Antigravity migration flag
+~/.gemini/config/mcp_config.json          # shared MCP server config
+~/.gemini/config/projects/<uuid>.json     # per-project (folder URI, allowWrite)
+~/.gemini/config/.migrated                # Gemini-CLI → Antigravity migration flag
+~/.gemini/antigravity-cli/antigravity-oauth-token  # the credential (see above)
 ~/.gemini/antigravity-cli/conversations/  # conversation history (for --conversation)
 ~/.gemini/antigravity-cli/{brain,knowledge}/
-~/.gemini/antigravity-cli/{keybindings.json,installation_id,cli.log}
 ```
 
-It also drops a `.antigravitycli/` directory **in the working repo** —
-just a symlink to the global project JSON. It is gitignored in this repo;
-any downstream fork should do the same.
-
-Credentials were not written (auth never completed). The README says the
-CLI uses the "system keyring"; this container has no Secret Service
-daemon, so it would fall back to a file under `~/.gemini/` — location
-unconfirmed.
-
-## Network allowlist requirements
-
-The container's network policy must permit:
-
-| Host | Phase |
-|---|---|
-| `antigravity.google` | install script, OAuth callback |
-| `antigravity-cli-auto-updater-*.run.app` | install payload, self-update |
-| `accounts.google.com`, `oauth2.googleapis.com` | OAuth |
-| `www.googleapis.com` | userinfo |
-| `cloudcode-pa.googleapis.com` | **runtime agent calls** |
-
-Install-phase hosts are reachable from this environment today. The runtime
-host `cloudcode-pa.googleapis.com` (the same Cloud Code backend Gemini CLI
-uses) is unverified — auth blocked before a call could be made.
+`agy` also drops a `.antigravitycli/` directory **in the working repo** — a
+symlink to the global project JSON. It is gitignored here; downstream forks
+should do the same.
 
 ## Orchestration
 
-`agy -p` is the same sub-process shape this workspace already uses for
-Gemini via the `invoke-gemini` skill. The mechanical pattern:
+With the token file in place, `agy -p` is a non-interactive sub-agent — the
+same sub-process shape this workspace uses for Gemini via `invoke-gemini`.
+Verified working:
 
 ```bash
-agy -p "<task>" \
-    --add-dir /home/user/claude-workspace-fuse \
-    --dangerously-skip-permissions \
-    --print-timeout 10m
+export SSH_CONNECTION="203.0.113.1 50000 203.0.113.2 22"   # → file token storage
+agy --dangerously-skip-permissions -p "<task>"
 ```
 
-An orchestrator (Claude Code, or a `flowing` DAG) shells out, captures
-stdout, and folds the result back in — a second-opinion agent running
-Google's harness alongside Claude's. `agy` also reads
-`~/.gemini/config/mcp_config.json`, so it can be handed the same MCP tool
-servers as the rest of the fleet.
+An orchestrator (Claude Code, a `flowing` DAG) shells out, captures stdout,
+and folds the result back — a second-opinion agent on Google's harness
+(Gemini 3.5 Flash) alongside Claude's. `agy` reads
+`~/.gemini/config/mcp_config.json`, so it can be handed the same MCP
+servers as the rest of the fleet. Network: runtime calls go to
+`cloudcode-pa.googleapis.com` (confirmed reachable once authenticated).
 
-**But the auth gate decides whether this is real.** Three options, worst
-to best for unattended use:
+### Three ways to provision auth, worst to best
 
-1. **Persist a personal OAuth token.** Complete the paste-code flow once,
-   then capture the refresh-token blob `agy` caches under `~/.gemini/` and
-   re-inject it into each ephemeral container. Feasible (offline access is
-   granted) but fragile, and it means shipping Oskar's personal Google
-   credential into throwaway containers — a credential-hygiene cost.
-2. **GCP service account (ADC).** If `agy` honours
-   `GOOGLE_APPLICATION_CREDENTIALS` for the `cloud-platform` scope — likely
-   but unverified — drop a service-account key, set
-   `GOOGLE_CLOUD_PROJECT`, and it is fully non-interactive. This is the
-   *correct* orchestration path. It needs a GCP project with the
-   Antigravity/Gemini backend enabled and billing attached.
-3. **Don't orchestrate it headless.** Use `agy` interactively in a local
-   terminal and rely on Antigravity 2.0's conversation-import to move work
-   between surfaces. The CLI's stated niche is keyboard-driven local and
-   SSH use, not unattended CI.
+1. **Interactive broker per container** — `scripts/agy_auth_broker.py` plus
+   one human OAuth dance. Works, but the dance must be prompt and repeats on
+   every fresh container.
+2. **Persist the token file** — do the dance once, save
+   `antigravity-oauth-token`, re-write it on each container boot. No further
+   dances. Caveat: it ships a personal Google credential into ephemeral
+   containers — keep it out of git and out of logs.
+3. **GCP service account (ADC)** — the binary references
+   `GOOGLE_APPLICATION_CREDENTIALS` / `GOOGLE_CLOUD_PROJECT`; the
+   `cloud-platform` scope and the "connect your GCP project" enterprise path
+   imply a fully non-interactive service-account option. Unverified here (no
+   GCP project to test) but it is the *correct* answer for unattended
+   orchestration — no keyring, no personal token, no dance.
 
 ### Recommendation
 
-Until the ADC path is confirmed, `agy` is **not** a clean drop-in for
-unattended CCotw orchestration the way `invoke-gemini` (plain API key) is.
-It is a good fit for *attended* sessions and for a properly GCP-provisioned
-environment. The next concrete step to make it orchestration-grade is to
-verify option 2: provision a service-account key and test whether
-`agy -p` runs non-interactively with `GOOGLE_APPLICATION_CREDENTIALS` set.
-If that works, `agy` becomes a first-class peer agent; if it doesn't,
-treat it as an interactive-only tool.
+`agy` is a working headless peer agent in this container today via options
+1–2. For durable, unattended CCotw orchestration, option 3 (service
+account) is worth verifying — it sidesteps both the keyring problem and the
+personal-credential hygiene issue. Until then, option 2 (a persisted token
+file) is the practical path.
