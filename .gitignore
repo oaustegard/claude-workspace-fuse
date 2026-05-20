@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 .spokes/
 .uploads/
+.antigravitycli/
 .work/
 .claude/worktrees/
 diagnostics/runs/
