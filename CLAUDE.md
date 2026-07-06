@@ -172,18 +172,39 @@ session's scope. Without it, cross-repo MCP fails-closed with
 `Access denied: repository "X" is not configured for this session`.
 Verified 2026-07-06 against `oaustegard/claude-skills`.
 
-**`gh` CLI + `$GH_TOKEN` remains the fallback** for hook-shell paths that
-MCP can't reach (MCP is only available to Claude in-session, not from
-shell hooks):
+**`gh` CLI is not used anywhere in this repo's operational paths** — not
+in-session, not in hooks. It exists in `$PATH` but nothing calls it. The
+real dichotomy is MCP (in-session) vs. raw HTTP + `$GH_TOKEN` (hook shell),
+because MCP is exposed to Claude the agent per-turn, not to shell scripts.
 
-- Layer-cache push/restore during boot (`rebuild-layer.sh` → `claude-container-layers`)
-- Transcript archival on Stop (`persist-transcript.sh` → same target)
-- `muninn_utils` scripts that predate the MCP re-enable
+**Hook-shell scripts use `$GH_TOKEN` directly:**
 
-When you need to fix a skill, update a spoke, or open a PR in another
-oaustegard repo: `add_repo` + MCP is the default channel. Fall back to
-`gh` only in hook contexts or when `add_repo` isn't viable. Don't treat
-skills as read-only just because they were fetched at boot time.
+- `persist-transcript.sh` — `curl -H "Authorization: token $GH_TOKEN"` against
+  `api.github.com` to archive the session transcript
+- `rebuild-layer.sh` / `persist-snapshot.sh` — delegate to the container-layer
+  skill's Python `scripts.cli --token`, which uses `httpx` to GitHub REST
+- Anonymous tarball reads (`boot-ccotw.sh`, layer downloads) go through
+  `codeload.github.com` with no auth needed
+
+**When you need to fix a skill, update a spoke, or open a PR in another
+oaustegard repo:** `add_repo` + MCP is the channel. There is no `gh`
+fallback because there is no `gh` path. Don't treat skills as read-only
+just because they were fetched at boot time.
+
+### `gh auth status` lies here — trust curl
+
+The agent proxy makes `gh auth status` report `The token in GH_TOKEN is
+invalid` even when the token is fully valid, because `gh`'s status probe
+hits an endpoint the proxy 400s. To verify PAT validity, use curl:
+
+```bash
+curl -sS -H "Authorization: token $GH_TOKEN" https://api.github.com/user | jq .login
+```
+
+If it echoes your login, the token works. Diagnosed 2026-07-06: the
+"$GH_TOKEN PAT is currently invalid" claim in [PR #29](https://github.com/oaustegard/claude-workspace-fuse/pull/29)'s
+follow-ups (and my restatement of it) was `gh` misreading the proxy, not
+the token being bad. Verified token still valid at the time.
 
 ### NEVER embed `$GH_TOKEN` in a URL
 

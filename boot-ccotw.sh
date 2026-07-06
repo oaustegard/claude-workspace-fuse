@@ -79,10 +79,15 @@ _detect_containerfile_drift() {
 }
 
 _wait_for_network() {
+    # Probe the same URL family _fetch_skills will hit next. The agent proxy's
+    # allowlist covers `codeload.github.com` and `api.github.com` (with auth)
+    # but NOT bare `https://github.com`, which 400s — a false-negative that
+    # dead-boots the session even though every real path (MCP, git clone via
+    # the git proxy, codeload fetches) works.
     local max_attempts=5
     local delay=2
     for i in $(seq 1 $max_attempts); do
-        if curl -sf --max-time 5 -o /dev/null "https://github.com"; then
+        if curl -sfI --max-time 5 -o /dev/null "https://codeload.github.com/oaustegard/claude-skills/tar.gz/main"; then
             return 0
         fi
         echo "  Waiting for network (attempt $i/$max_attempts)..."
