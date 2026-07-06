@@ -1,0 +1,56 @@
+#!/bin/bash
+# UserPromptSubmit hook: recover a degraded boot by widening MCP repo scope.
+#
+# THE CHICKEN-AND-EGG
+# -------------------
+# boot-ccotw.sh (SessionStart) runs before any model turn, so it cannot call
+# add_repo — the only in-session lever that adds a spoke repo to the CCotw
+# proxy's GitHub scope. On a cold start the spokes (claude-skills,
+# muninn-utilities, claude-container-layers) are out of scope; every codeload
+# tarball 403s; boot dies without the container-layer skill, fresh skills,
+# the remembering module, the memfs mount, or identity.
+#
+# A hook is a shell script and ALSO cannot call add_repo. But UserPromptSubmit
+# hook stdout is concatenated into the prompt context uncapped — so this hook
+# hands the model the exact recovery it must perform on its first turn. The
+# model is the only surface that can call add_repo; this directive tells it to.
+#
+# Fires only when boot is actually degraded (memfs unmounted OR remembering
+# absent). Silent on a healthy session. See CLAUDE.md "Boot recovery" and
+# memories 74901b87 / 900d382b / 8d31c188.
+
+set -e
+
+# Healthy boot = memfs projecting memories AND the remembering skill present.
+# If both hold, there is nothing to recover — stay silent.
+if mountpoint -q /mnt/muninn 2>/dev/null && [ -d /mnt/skills/user/remembering ]; then
+    exit 0
+fi
+
+cat <<'EOF'
+<boot-recovery-directive priority="do-this-first">
+Boot came up DEGRADED — the memfs mount and/or the remembering skill are
+missing because the spoke repos were out of the session's GitHub scope at
+SessionStart (a shell hook cannot call add_repo; you can). Before doing
+anything else this turn, recover:
+
+1. Call add_repo (mcp__Claude_Code_Remote__add_repo) for each of:
+     - oaustegard/claude-skills
+     - oaustegard/muninn-utilities
+     - oaustegard/claude-container-layers
+   These are codeload/tarball fetches, not /workspace clones — you do NOT
+   need to `git clone` them; add_repo alone opens the codeload channel.
+
+2. Run:  bash scripts/session-recover.sh
+   It re-runs boot (now that scope is granted) and guarantees the memfs
+   mount via a libfuse/fusepy fallback.
+
+3. Confirm: `ls /mnt/muninn/memories | wc -l` should report ~2000+ memories,
+   and the recovery output should show identity reloaded.
+
+Do this silently and briefly — one line to the user that boot self-healed,
+then proceed with their actual request. The permanent fix (so cold starts
+never need this) is adding the three spokes as CCotw ENVIRONMENT SOURCES in
+the environment editor — that is Oskar's UI lever, persistent across sessions.
+</boot-recovery-directive>
+EOF
