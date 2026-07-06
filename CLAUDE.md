@@ -130,11 +130,26 @@ act:
 **Obey the `<boot-recovery-directive>` first thing on any turn it appears** —
 one line to Oskar that boot self-healed, then proceed with his request.
 
-**Permanent fix (Oskar's lever, not a repo edit):** add the three spokes as
-CCotw **environment sources** in the environment editor. Sources are in scope
-from tick 0 of every session, so cold starts never hit the lockdown and this
-recovery path stays dormant. The in-repo recovery is the belt; environment
-sources are the suspenders.
+**Call `add_repo` but NOT `register_repo_root`.** `add_repo` alone opens the
+codeload/tarball channel — which is all boot needs. `register_repo_root` (and
+the clone-then-register flow the `add_repo` response nudges toward) additionally
+**inlines each spoke's `CLAUDE.md`, skills, and plugins** into context; add all
+the spokes that way and their instructions pile up and cross-talk with this
+hub's. The recovery deliberately skips it: scope without inlining. Empirically
+confirmed — three `add_repo` calls with no `register_repo_root` gave working
+codeload with zero spoke `CLAUDE.md` in context.
+
+**On the lack of a set-and-forget fix.** There is **no "environment editor" or
+persistent "environment sources"** in this CCotw setup (that's the *parent*
+`claude-workspace`'s model — do not project it here; this is the exact mistake
+memory `74901b87` logged). The session-start **"add repository"** UI feature
+does exist, but adding the spokes there registers them fully, so every added
+repo's `CLAUDE.md` gets inlined and the context muddles — the very problem the
+`register_repo_root`-skip above avoids. So this first-turn recovery *is* the
+standing solution, not a stopgap: it grants exactly the codeload scope boot
+needs, on demand, without inlining anything. `add_repo` scope also persists
+across container **resumes** within a session, so warm resumes boot clean with
+no recovery needed.
 
 ## muninn-utilities is the home for everything Muninn
 
