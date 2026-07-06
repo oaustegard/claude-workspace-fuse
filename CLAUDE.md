@@ -95,6 +95,47 @@ Three deliberately separated layers:
 - **Skills** (fresh every session): fetched from `claude-skills`, never stale
 - **muninn-utilities** (fresh every session): fetched from `muninn-utilities`, source-of-truth for everything Muninn (`remembering/` + `muninn_utils/`)
 
+## Boot recovery (cold-start scope lockdown)
+
+Every boot step above that fetches a **spoke** (`claude-skills`,
+`muninn-utilities`, `claude-container-layers`) goes through `codeload.github.com`.
+The CCotw agent proxy scopes GitHub access per session: on a **cold start** the
+spokes are out of scope, so every spoke `codeload` fetch returns **403** and boot
+comes up degraded — no container-layer skill, no fresh skills, no `remembering`,
+no `/mnt/muninn` mount, no identity. (Diagnosed repeatedly 2026-07-06; see
+memories `74901b87`, `900d382b`, `8d31c188` for the three-tier proxy-scope model.)
+
+The **only** in-session lever that widens scope is `add_repo`
+(`mcp__Claude_Code_Remote__add_repo`). It is a **model tool** — it fires on a
+turn. The `SessionStart` hook is a **shell script that runs before any turn
+exists**, so it *cannot* call `add_repo`. This is a hard chicken-and-egg: no
+edit to `boot-ccotw.sh` can pre-authorize the spokes.
+
+The workaround moves the scope-widening to the first turn, where the model can
+act:
+
+1. `boot-ccotw.sh` no longer `exit 1`s when the container-layer skill fetch
+   403s — it warns and continues, so warm-resume containers (where a prior
+   session's `add_repo` scope persisted) still finish, and cold starts still
+   write their health signals.
+2. `scripts/ensure-scope.sh` (a `UserPromptSubmit` hook) checks boot health
+   (`/mnt/muninn` mounted **and** `remembering` present). If degraded, it
+   injects a `<boot-recovery-directive>` telling the model to `add_repo` the
+   three spokes and run `scripts/session-recover.sh`. Silent on a healthy
+   session.
+3. `scripts/session-recover.sh` (run by the model after `add_repo`) confirms
+   scope landed, re-runs boot idempotently, and guarantees the memfs mount via
+   a `libfuse2`/`fuse`/`fusepy` apt+pip fallback for a cold fuse-layer cache.
+
+**Obey the `<boot-recovery-directive>` first thing on any turn it appears** —
+one line to Oskar that boot self-healed, then proceed with his request.
+
+**Permanent fix (Oskar's lever, not a repo edit):** add the three spokes as
+CCotw **environment sources** in the environment editor. Sources are in scope
+from tick 0 of every session, so cold starts never hit the lockdown and this
+recovery path stays dormant. The in-repo recovery is the belt; environment
+sources are the suspenders.
+
 ## muninn-utilities is the home for everything Muninn
 
 Per memory `0d63ed4f` and the architectural pivot of 2026-05:

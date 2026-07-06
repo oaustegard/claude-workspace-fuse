@@ -380,8 +380,15 @@ _refresh_container_layer_skill
 if [ -f "$SKILL_DIR/scripts/containerfile.py" ]; then
     echo "  ✓ container-layer skill loaded"
 else
-    echo "  ✗ bootstrap failed (check network/token)"
-    exit 1
+    # Cold-start lockdown: the container-layer skill lives in claude-skills,
+    # a SPOKE that isn't in this session's scope until the model calls
+    # add_repo — which a SessionStart hook cannot do (it's a shell script;
+    # add_repo is a model tool that only fires on a turn). So this fetch 403s
+    # on every cold boot. Do NOT exit: identity + memfs do not need the
+    # container-layer skill, and the first turn recovers scope via
+    # scripts/ensure-scope.sh (UserPromptSubmit) -> scripts/session-recover.sh.
+    echo "  ✗ container-layer skill bootstrap failed (codeload 403 / spoke not in scope)"
+    echo "    Continuing — skills/memfs/identity recover on the first turn."
 fi
 _tmark "bootstrap"
 

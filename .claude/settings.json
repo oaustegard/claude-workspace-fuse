@@ -43,6 +43,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash ./scripts/ensure-scope.sh 2>/dev/null || true"
+          },
+          {
+            "type": "command",
             "command": "bash ./scripts/inject-identity.sh 2>/dev/null || true"
           },
           {
