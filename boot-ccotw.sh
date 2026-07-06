@@ -79,15 +79,20 @@ _detect_containerfile_drift() {
 }
 
 _wait_for_network() {
-    # Probe the same URL family _fetch_skills will hit next. The agent proxy's
-    # allowlist covers `codeload.github.com` and `api.github.com` (with auth)
-    # but NOT bare `https://github.com`, which 400s — a false-negative that
-    # dead-boots the session even though every real path (MCP, git clone via
-    # the git proxy, codeload fetches) works.
+    # ANY http status (even a 403) proves the network is up — only 000
+    # (no response) means down. The old probe (`curl -f https://github.com`)
+    # mistook the agent proxy's lockdown 403 for a dead network and aborted
+    # boot. raw.githubusercontent.com is the probe target because it's the
+    # one github host the proxy currently passes through.
+    # (Adopted from parent claude-workspace; more robust to future proxy
+    # allowlist changes than probing a specific tarball URL.)
     local max_attempts=5
     local delay=2
     for i in $(seq 1 $max_attempts); do
-        if curl -sfI --max-time 5 -o /dev/null "https://codeload.github.com/oaustegard/claude-skills/tar.gz/main"; then
+        local code
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+            "https://raw.githubusercontent.com/")
+        if [ "$code" != "000" ]; then
             return 0
         fi
         echo "  Waiting for network (attempt $i/$max_attempts)..."
