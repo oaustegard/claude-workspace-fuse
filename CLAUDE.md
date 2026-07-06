@@ -164,14 +164,47 @@ Other repos are **spokes** that you work in during sessions. Key spokes:
   used by this workspace itself. Mirrored to Tangled at
   [austegard.com/claude-tangled-spoke](https://tangled.org/austegard.com/claude-tangled-spoke).
 
-**GitHub operations use `gh` CLI** (authenticated via `$GH_TOKEN`), which
-works across all oaustegard repos — hub and spokes alike. The platform's
-MCP GitHub server is denied in `.claude/settings.json` via
-`deniedMcpServers` since it cannot reach spoke repos.
+**GitHub operations default to the platform's MCP tools** (`mcp__github__*`),
+re-enabled in [PR #29](https://github.com/oaustegard/claude-workspace-fuse/pull/29).
+MCP reaches this workspace repo automatically; for **spokes** (`claude-skills`,
+`eml-sr`, `muninn-utilities`, etc.), call `add_repo` first to widen the
+session's scope. Without it, cross-repo MCP fails-closed with
+`Access denied: repository "X" is not configured for this session`.
+Verified 2026-07-06 against `oaustegard/claude-skills`.
 
-When you need to fix a skill, update a spoke, or open a PR in another repo —
-do it directly via `gh`. Don't treat skills as read-only just because they
-were fetched at boot time.
+**`gh` CLI is not used anywhere in this repo's operational paths** — not
+in-session, not in hooks. It exists in `$PATH` but nothing calls it. The
+real dichotomy is MCP (in-session) vs. raw HTTP + `$GH_TOKEN` (hook shell),
+because MCP is exposed to Claude the agent per-turn, not to shell scripts.
+
+**Hook-shell scripts use `$GH_TOKEN` directly:**
+
+- `persist-transcript.sh` — `curl -H "Authorization: token $GH_TOKEN"` against
+  `api.github.com` to archive the session transcript
+- `rebuild-layer.sh` / `persist-snapshot.sh` — delegate to the container-layer
+  skill's Python `scripts.cli --token`, which uses `httpx` to GitHub REST
+- Anonymous tarball reads (`boot-ccotw.sh`, layer downloads) go through
+  `codeload.github.com` with no auth needed
+
+**When you need to fix a skill, update a spoke, or open a PR in another
+oaustegard repo:** `add_repo` + MCP is the channel. There is no `gh`
+fallback because there is no `gh` path. Don't treat skills as read-only
+just because they were fetched at boot time.
+
+### `gh auth status` lies here — trust curl
+
+The agent proxy makes `gh auth status` report `The token in GH_TOKEN is
+invalid` even when the token is fully valid, because `gh`'s status probe
+hits an endpoint the proxy 400s. To verify PAT validity, use curl:
+
+```bash
+curl -sS -H "Authorization: token $GH_TOKEN" https://api.github.com/user | jq .login
+```
+
+If it echoes your login, the token works. Diagnosed 2026-07-06: the
+"$GH_TOKEN PAT is currently invalid" claim in [PR #29](https://github.com/oaustegard/claude-workspace-fuse/pull/29)'s
+follow-ups (and my restatement of it) was `gh` misreading the proxy, not
+the token being bad. Verified token still valid at the time.
 
 ### NEVER embed `$GH_TOKEN` in a URL
 
