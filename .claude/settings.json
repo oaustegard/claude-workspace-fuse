@@ -1,7 +1,4 @@
 {
-  "deniedMcpServers": [
-    { "serverName": "github" }
-  ],
   "hooks": {
     "SessionStart": [
       {
