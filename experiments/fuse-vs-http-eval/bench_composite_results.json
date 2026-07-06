@@ -1,0 +1,23 @@
+{
+  "fuse_workflow": {
+    "median": 823.8,
+    "min": 792.2,
+    "max": 866.9
+  },
+  "http_savvy_sql": {
+    "median": 679.0,
+    "min": 608.9,
+    "max": 881.7
+  },
+  "http_naive_perread": {
+    "median": 7387.3,
+    "min": 7154.2,
+    "max": 10315.5,
+    "note": "10 of 46 reads; full set ~4.6x"
+  },
+  "fuse_cat_all": {
+    "median": 835.1,
+    "per_file_ms": 0.401,
+    "bytes": "3882295"
+  }
+}
