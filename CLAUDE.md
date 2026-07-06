@@ -164,14 +164,26 @@ Other repos are **spokes** that you work in during sessions. Key spokes:
   used by this workspace itself. Mirrored to Tangled at
   [austegard.com/claude-tangled-spoke](https://tangled.org/austegard.com/claude-tangled-spoke).
 
-**GitHub operations use `gh` CLI** (authenticated via `$GH_TOKEN`), which
-works across all oaustegard repos — hub and spokes alike. The platform's
-MCP GitHub server is denied in `.claude/settings.json` via
-`deniedMcpServers` since it cannot reach spoke repos.
+**GitHub operations default to the platform's MCP tools** (`mcp__github__*`),
+re-enabled in [PR #29](https://github.com/oaustegard/claude-workspace-fuse/pull/29).
+MCP reaches this workspace repo automatically; for **spokes** (`claude-skills`,
+`eml-sr`, `muninn-utilities`, etc.), call `add_repo` first to widen the
+session's scope. Without it, cross-repo MCP fails-closed with
+`Access denied: repository "X" is not configured for this session`.
+Verified 2026-07-06 against `oaustegard/claude-skills`.
 
-When you need to fix a skill, update a spoke, or open a PR in another repo —
-do it directly via `gh`. Don't treat skills as read-only just because they
-were fetched at boot time.
+**`gh` CLI + `$GH_TOKEN` remains the fallback** for hook-shell paths that
+MCP can't reach (MCP is only available to Claude in-session, not from
+shell hooks):
+
+- Layer-cache push/restore during boot (`rebuild-layer.sh` → `claude-container-layers`)
+- Transcript archival on Stop (`persist-transcript.sh` → same target)
+- `muninn_utils` scripts that predate the MCP re-enable
+
+When you need to fix a skill, update a spoke, or open a PR in another
+oaustegard repo: `add_repo` + MCP is the default channel. Fall back to
+`gh` only in hook contexts or when `add_repo` isn't viable. Don't treat
+skills as read-only just because they were fetched at boot time.
 
 ### NEVER embed `$GH_TOKEN` in a URL
 
