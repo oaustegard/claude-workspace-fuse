@@ -1,0 +1,72 @@
+{
+  "b1_fuse_grep": {
+    "median": 741.2,
+    "min": 719.7,
+    "max": 777.3,
+    "n": 5,
+    "matches": 46
+  },
+  "b1_http_like": {
+    "median": 550.6,
+    "min": 529.5,
+    "max": 912.5,
+    "n": 5,
+    "matches": 46
+  },
+  "b1_http_pull": {
+    "median": 856.9,
+    "min": 846.6,
+    "max": 978.2,
+    "n": 3,
+    "matches": 46
+  },
+  "b1_http_recall": {
+    "median": 619.2,
+    "min": 595.2,
+    "max": 660.6,
+    "n": 3,
+    "matches": 15
+  },
+  "b2_fuse_multi": {
+    "median": 820.9,
+    "min": 736.0,
+    "max": 879.0,
+    "n": 5,
+    "matches": 105
+  },
+  "b2_http_multi": {
+    "median": 660.0,
+    "min": 573.9,
+    "max": 816.8,
+    "n": 5,
+    "matches": 104
+  },
+  "b3_fuse_cat": {
+    "median": 7.0,
+    "min": 6.7,
+    "max": 8.2,
+    "n": 5,
+    "bytes": 2402
+  },
+  "b3_http_read": {
+    "median": 671.6,
+    "min": 523.7,
+    "max": 807.4,
+    "n": 5,
+    "summary_bytes": 2162
+  },
+  "b4_fuse_wc": {
+    "median": 801.2,
+    "min": 769.4,
+    "max": 939.8,
+    "n": 5,
+    "total_line": "55859 total"
+  },
+  "b4_http_wc": {
+    "median": 918.9,
+    "min": 818.0,
+    "max": 945.6,
+    "n": 3,
+    "total_body_lines": 37856
+  }
+}
