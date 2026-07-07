@@ -121,14 +121,27 @@ act:
 2. `scripts/ensure-scope.sh` (a `UserPromptSubmit` hook) checks boot health
    (`/mnt/muninn` mounted **and** `remembering` present). If degraded, it
    injects a `<boot-recovery-directive>` telling the model to `add_repo` the
-   three spokes and run `scripts/session-recover.sh`. Silent on a healthy
+   three spokes and invoke the **`muninn-boot`** skill. Silent on a healthy
    session.
-3. `scripts/session-recover.sh` (run by the model after `add_repo`) confirms
-   scope landed, re-runs boot idempotently, and guarantees the memfs mount via
-   a `libfuse2`/`fuse`/`fusepy` apt+pip fallback for a cold fuse-layer cache.
+3. The **`muninn-boot`** skill (`.claude/skills/muninn-boot/`, committed to this
+   hub so it's discoverable on turn 1 with no fetch) is the model-invocable boot
+   entrypoint. Its `scripts/boot.sh` is a thin, health-aware wrapper: a no-op
+   when already healthy, otherwise it runs `scripts/session-recover.sh`, which
+   confirms scope landed, re-runs boot idempotently, and guarantees the memfs
+   mount via a `libfuse2`/`fuse`/`fusepy` apt+pip fallback for a cold fuse-layer
+   cache. `_link_project_skills` in `boot-ccotw.sh` symlinks it into
+   `~/.claude/skills` (registers next session, same one-session lag as the other
+   slash skills).
+
+**Hybrid, not either/or.** The `SessionStart` hook still runs `boot-ccotw.sh`,
+so **warm resumes auto-boot** with zero model effort (scope persists across
+container resumes). The `muninn-boot` skill carries **cold starts**, where the
+model must `add_repo` first. One boot implementation (`boot-ccotw.sh`), two
+callers (the hook for warm, the skill for cold).
 
 **Obey the `<boot-recovery-directive>` first thing on any turn it appears** —
-one line to Oskar that boot self-healed, then proceed with his request.
+`add_repo` the three spokes, invoke `muninn-boot`, one line to Oskar that boot
+self-healed, then proceed with his request.
 
 **Call `add_repo` but NOT `register_repo_root`.** `add_repo` alone opens the
 codeload/tarball channel — which is all boot needs. `register_repo_root` (and
