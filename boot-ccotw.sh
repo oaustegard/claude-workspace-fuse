@@ -420,8 +420,20 @@ _tmark "bootstrap"
 if [ -f "$SKILL_DIR/scripts/containerfile.py" ]; then
     if [ -f "$PROJECT_DIR/.claude/container-layers.json" ] || [ -f "$CONTAINERFILE" ]; then
         echo "Applying container layers..."
-        (cd "$PROJECT_DIR" && python3 scripts/compose_layers.py apply 2>&1)
-        echo "✓ Container layers applied"
+        # Non-fatal: a compose failure (e.g. a layer cache-miss build that
+        # crashes — see the ARG_MAX bug in the container-layer skill's
+        # layer_cache.py) must NOT abort boot under `set -e`. Skills,
+        # remembering, the memfs mount, and identity do not need the container
+        # layer — same rationale as the cold-start bootstrap-403 path above.
+        # Before this guard, a compose crash killed boot before _fetch_skills /
+        # _fetch_muninn_utilities / post-boot.sh, leaving the session with no
+        # /mnt/muninn (memfs imports remembering's scripts.turso) and no
+        # identity. Diagnosed 2026-07-07, session 87f8d62b.
+        if (cd "$PROJECT_DIR" && python3 scripts/compose_layers.py apply 2>&1); then
+            echo "✓ Container layers applied"
+        else
+            echo "  ✗ Container layer compose failed (non-fatal) — continuing to skills/memfs/identity"
+        fi
     else
         echo "No manifest at .claude/container-layers.json and no Containerfile — skipping."
     fi
