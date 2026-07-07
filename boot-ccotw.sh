@@ -313,12 +313,22 @@ _link_project_skills() {
     echo "  ✓ Linked $linked project skills into $target_dir"
 }
 
+_ensure_base_deps() {
+    # SPIKE (2026-07-07): install the light always-on deps (httpx, libsql,
+    # fusepy, libfuse2, env-shim) natively from PyPI/apt instead of the
+    # GitHub-Releases `base`/`fuse` layers, which cold-start-degrade along
+    # with the rest of the codeload path. Idempotent no-op when already
+    # present. Heavy layers (scientific, torch-cpu, …) stay on the layer
+    # system. See scripts/install-base-deps.sh + docs/spike-native-base-deps.md.
+    local s="$PROJECT_DIR/scripts/install-base-deps.sh"
+    [ -f "$s" ] && bash "$s"
+}
+
 _verify_fuse_deps() {
-    # FUSE Python bindings now ship in `layers/Containerfile.fuse` (cached as
-    # `layer-fuse-<hash>`). libfuse2 + fusermount have always been in the base
-    # container image. This function is a verification-only fallback: it warns
-    # if the fuse layer hasn't warmed up yet for this session so memfs failures
-    # have a clear pointer rather than mysterious ImportError tracebacks.
+    # Verification-only post-check. With the native base-deps path above,
+    # fusepy + libfuse2 are installed from PyPI/apt before this runs, so this
+    # normally passes. It stays as a clear pointer if the mount still can't
+    # find its deps (rather than a mysterious ImportError downstream).
     local missing=0
     command -v fusermount >/dev/null 2>&1 || missing=1
     python3 -c "import fuse" 2>/dev/null || missing=1
@@ -365,6 +375,8 @@ if [ -f "$MARKER" ]; then
     # Skills are always fetched fresh — never rely on stale copies from a previous boot
     _wait_for_network
     _tmark "network_wait"
+    _ensure_base_deps
+    _tmark "base_deps"
     _fetch_skills
     _tmark "skills_fetch"
     # muninn-utilities overlays remembering/ + installs muninn_utils/ before boot
@@ -396,6 +408,12 @@ _tmark "env_source"
 # Wait for network before doing anything that hits the internet
 _wait_for_network
 _tmark "network_wait"
+
+# SPIKE: install the light base+fuse deps natively (PyPI/apt) BEFORE the
+# GitHub-Releases layer compose, so they land even when the codeload path is
+# cold-start-scoped-out. See scripts/install-base-deps.sh.
+_ensure_base_deps
+_tmark "base_deps"
 
 SKILL_DIR="/tmp/_container_layer"
 echo "Fetching container-layer skill..."
