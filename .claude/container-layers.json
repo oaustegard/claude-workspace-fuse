@@ -1,4 +1,4 @@
 {
-  "_comment": "Hub default + fuse for the memfs mount.",
-  "layers": ["base", "scientific", "torch-cpu", "fuse"]
+  "_comment": "SPIKE (claude/spike-native-base-deps): `base` + `fuse` are carved OUT of the layer path and installed natively from PyPI/apt by scripts/install-base-deps.sh (wired into boot-ccotw.sh). Only the heavy modular layers ride the GitHub-Releases cache here. Revert = restore [\"base\", \"scientific\", \"torch-cpu\", \"fuse\"]. See docs/spike-native-base-deps.md.",
+  "layers": ["scientific", "torch-cpu"]
 }
