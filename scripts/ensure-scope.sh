@@ -52,8 +52,11 @@ anything else this turn, recover:
    and the recovery output should show identity reloaded.
 
 Do this silently and briefly — one line to the user that boot self-healed,
-then proceed with their actual request. NOTE: there is no "environment sources"
-or "environment editor" in this CCotw setup (that is the parent claude-workspace
-model — do not project it). This first-turn recovery IS the standing solution.
+then proceed with their actual request. NOTE (docs-checked 2026-07-07): a CCotw
+*environment* has no source-repo list — it carries only name/network/env-vars/
+setup-script — so the spokes cannot be attached at the environment level. A
+*session* CAN preselect multiple repos (claude.ai/code?repositories=<slugs>), a
+candidate set-and-forget path, but whether that inlines each repo's CLAUDE.md is
+untested; until it's verified this first-turn recovery IS the standing solution.
 </boot-recovery-directive>
 EOF

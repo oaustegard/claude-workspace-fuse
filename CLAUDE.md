@@ -152,17 +152,49 @@ hub's. The recovery deliberately skips it: scope without inlining. Empirically
 confirmed — three `add_repo` calls with no `register_repo_root` gave working
 codeload with zero spoke `CLAUDE.md` in context.
 
-**On the lack of a set-and-forget fix.** There is **no "environment editor" or
-persistent "environment sources"** in this CCotw setup (that's the *parent*
-`claude-workspace`'s model — do not project it here; this is the exact mistake
-memory `74901b87` logged). The session-start **"add repository"** UI feature
-does exist, but adding the spokes there registers them fully, so every added
-repo's `CLAUDE.md` gets inlined and the context muddles — the very problem the
-`register_repo_root`-skip above avoids. So this first-turn recovery *is* the
-standing solution, not a stopgap: it grants exactly the codeload scope boot
-needs, on demand, without inlining anything. `add_repo` scope also persists
-across container **resumes** within a session, so warm resumes boot clean with
-no recovery needed.
+**On the durable-fix landscape (docs-checked 2026-07-07 against
+[the CCotw docs](https://code.claude.com/docs/en/claude-code-on-the-web) +
+[quickstart](https://code.claude.com/docs/en/web-quickstart)).** A CCotw
+**environment** carries exactly four fields — name, network access, environment
+variables, setup script. There is **no per-environment source-repo list**, so
+the spokes cannot be attached at the *environment* level such that every new
+session inherits them. That much of the "don't project the parent
+`claude-workspace` model" caution (memory `74901b87`) holds — but the old
+phrasing here, *"there is no environment editor,"* was **wrong**: the editor
+exists, it just has no repo field. Memory `74901b87`'s own tier-(a) ("env
+sources configured in the environment editor") mislocated the lever; its
+self-correction two sentences later ("I misread `add_repo` resume-persistence as
+env sources; he hadn't") was the accurate part.
+
+What *does* exist is **session-level multi-repo selection**: the quickstart says
+verbatim "You can add multiple repositories to work across them in one session,"
+and a `claude.ai/code?repositories=<owner/repo,...>` prefill URL preselects
+them. Repos chosen that way are cloned *before* the `SessionStart` hook runs, so
+they would be in codeload scope from tick 0 — a real set-and-forget path if you
+always launch from a bookmarked prefill URL carrying all four slugs.
+
+**OPEN — needs one empirical test (flagged 2026-07-07).** Does session multi-repo
+selection **inline each repo's `CLAUDE.md`** the way `register_repo_root` does?
+The earlier claim here that the "add repository" feature "registers them fully /
+inlines every `CLAUDE.md`" **conflated it with `register_repo_root` and was never
+tested** — the only thing empirically confirmed (above) is that `add_repo`
+*without* `register_repo_root` doesn't inline. The test is Oskar's to run:
+launch one session via the 4-repo prefill URL, then observe (a) whether boot
+self-heals with the recovery directive never firing, and (b) whether the spoke
+`CLAUDE.md`s cross-talk in context. If (a) yes and (b) no → adopt the prefill URL
+as the standing launcher and demote this recovery to warm-fallback. If (b) yes →
+attach only the thin-`CLAUDE.md` spokes (`claude-container-layers` is a
+near-empty cache store) and keep `add_repo` recovery for `claude-skills` /
+`muninn-utilities`.
+
+**Until that test returns, this first-turn recovery remains the standing
+solution** — it grants exactly the codeload scope boot needs, on demand, without
+inlining anything. `add_repo` scope also persists across container **resumes**
+within a session, so warm resumes boot clean with no recovery needed (confirmed
+again 2026-07-07). Note: the Cloudflare-Worker fallback (`scripts/cf-gh-proxy/`,
+memory `8d31c188`) is **not present on this branch** — it never merged from
+`claude/github-credentials-routine-failures-7llbhp`, so treat it as unbuilt if
+the session-repo lever doesn't pan out.
 
 ## muninn-utilities is the home for everything Muninn
 
