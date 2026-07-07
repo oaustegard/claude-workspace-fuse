@@ -291,6 +291,28 @@ _link_slash_skills() {
     echo "  ✓ Linked $linked slash skills into $target_dir"
 }
 
+_link_project_skills() {
+    # Register this hub repo's own skills (e.g. muninn-boot) into
+    # ~/.claude/skills so they're invocable via the `Skill` tool / `/<name>`.
+    # These are committed IN the repo (always present, no fetch needed), which
+    # is what lets `muninn-boot` be invoked on a cold turn 1 to recover a
+    # degraded boot. Same one-session lag as _link_slash_skills — the symlink
+    # registers for the NEXT session; the current cold session drives boot via
+    # scripts/ensure-scope.sh's injected directive + bash invocation.
+    local home_dir target_dir src linked=0 d name
+    home_dir=$(python3 -c 'import os; print(os.path.expanduser("~"))')
+    target_dir="$home_dir/.claude/skills"
+    src="$PROJECT_DIR/.claude/skills"
+    [ -d "$src" ] || return 0
+    mkdir -p "$target_dir" 2>/dev/null || return 0
+    for d in "$src"/*/; do
+        [ -f "${d}SKILL.md" ] || continue
+        name=$(basename "$d")
+        ln -sfn "${d%/}" "$target_dir/$name" 2>/dev/null && linked=$((linked + 1))
+    done
+    echo "  ✓ Linked $linked project skills into $target_dir"
+}
+
 _verify_fuse_deps() {
     # FUSE Python bindings now ship in `layers/Containerfile.fuse` (cached as
     # `layer-fuse-<hash>`). libfuse2 + fusermount have always been in the base
@@ -355,6 +377,7 @@ if [ -f "$MARKER" ]; then
     _start_memfs_background
     _tmark "memfs_start"
     _link_slash_skills
+    _link_project_skills
     _tmark "slash_skills"
     _output_skills
     _tmark "skills_list"
@@ -420,6 +443,7 @@ _verify_fuse_deps
 _tmark "fuse_deps"
 _start_memfs_background
 _tmark "memfs_start"
+_link_project_skills
 
 touch "$MARKER"
 _output_skills

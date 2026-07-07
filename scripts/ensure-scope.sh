@@ -43,9 +43,10 @@ anything else this turn, recover:
    inlines each spoke's CLAUDE.md/skills into context and they cross-talk with
    this hub's instructions. Scope without inlining is the whole point.
 
-2. Run:  bash scripts/session-recover.sh
+2. Invoke the muninn-boot skill (Skill tool, name "muninn-boot"), or run it
+   directly:  bash .claude/skills/muninn-boot/scripts/boot.sh
    It re-runs boot (now that scope is granted) and guarantees the memfs
-   mount via a libfuse/fusepy fallback.
+   mount via a libfuse/fusepy fallback. (The skill wraps scripts/session-recover.sh.)
 
 3. Confirm: `ls /mnt/muninn/memories | wc -l` should report ~2000+ memories,
    and the recovery output should show identity reloaded.
