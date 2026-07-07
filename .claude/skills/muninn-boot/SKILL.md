@@ -35,10 +35,15 @@ model-only step the shell cannot perform, then a script:
    inlines each spoke's `CLAUDE.md`/skills into context, where they cross-talk
    with this hub's instructions. Scope without inlining is the point.
 
-2. **Run the boot:**
+2. **Run the boot** (use the skill's base directory printed at the top of this
+   invocation — do **not** rely on `$CLAUDE_PROJECT_DIR`; it is unset in the
+   CCotw Bash tool shell, so `bash "$CLAUDE_PROJECT_DIR/..."` collapses to
+   `/.claude/...` and fails with exit 127):
 
    ```bash
-   bash "$CLAUDE_PROJECT_DIR/.claude/skills/muninn-boot/scripts/boot.sh"
+   # The ${CLAUDE_PROJECT_DIR:-…} fallback makes this copy-pasteable whether or
+   # not the var happens to be set:
+   bash "${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}/.claude/skills/muninn-boot/scripts/boot.sh"
    ```
 
    It confirms scope landed, re-runs the full fuse boot idempotently
