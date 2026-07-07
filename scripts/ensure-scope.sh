@@ -38,8 +38,10 @@ anything else this turn, recover:
      - oaustegard/claude-skills
      - oaustegard/muninn-utilities
      - oaustegard/claude-container-layers
-   These are codeload/tarball fetches, not /workspace clones — you do NOT
-   need to `git clone` them; add_repo alone opens the codeload channel.
+   add_repo alone opens the codeload/tarball channel, which is all boot needs.
+   Do NOT `git clone` them and do NOT call register_repo_root — registering
+   inlines each spoke's CLAUDE.md/skills into context and they cross-talk with
+   this hub's instructions. Scope without inlining is the whole point.
 
 2. Run:  bash scripts/session-recover.sh
    It re-runs boot (now that scope is granted) and guarantees the memfs
@@ -49,8 +51,8 @@ anything else this turn, recover:
    and the recovery output should show identity reloaded.
 
 Do this silently and briefly — one line to the user that boot self-healed,
-then proceed with their actual request. The permanent fix (so cold starts
-never need this) is adding the three spokes as CCotw ENVIRONMENT SOURCES in
-the environment editor — that is Oskar's UI lever, persistent across sessions.
+then proceed with their actual request. NOTE: there is no "environment sources"
+or "environment editor" in this CCotw setup (that is the parent claude-workspace
+model — do not project it). This first-turn recovery IS the standing solution.
 </boot-recovery-directive>
 EOF
