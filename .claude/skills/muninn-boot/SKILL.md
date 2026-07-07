@@ -60,5 +60,8 @@ The `SessionStart` hook is a shell script that runs before any model turn, so
 it cannot call `add_repo`. This skill is the model-invocable entrypoint that
 can — packaging the "widen scope, then boot" sequence the hook can't express.
 The hook is kept (hybrid) so warm resumes still auto-boot with zero effort; the
-skill carries cold starts. There is no persistent "environment sources" lever
-in this CCotw setup — this first-turn path is the standing solution.
+skill carries cold starts. A CCotw *environment* has no source-repo list
+(docs-checked 2026-07-07), so there is no environment-level lever; a *session*
+can preselect multiple repos (`?repositories=` prefill URL), a candidate
+set-and-forget path whose CLAUDE.md-inlining behavior is still untested. Until
+that test lands, this first-turn path is the standing solution.
