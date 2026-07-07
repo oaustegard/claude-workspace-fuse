@@ -27,6 +27,28 @@ if mountpoint -q /mnt/muninn 2>/dev/null && [ -d /mnt/skills/user/remembering ];
     exit 0
 fi
 
+# Mobile sessions: the interactive add_repo approval card often does not
+# round-trip (fails closed synchronously, or resolves 30-88s later — past the
+# permission stream's patience), so the directive's add_repo calls fail with
+# "MCP tool call requires approval" / "permission stream closed". Warn up front
+# so the model reaches for the unlock (auto mode, or the session-start "add
+# repository" UI) instead of firing add_repo into a dead channel and burning
+# turns rediscovering the wall. Diagnosed 2026-07-07, session 87f8d62b.
+if [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "remote_mobile" ]; then
+    cat <<'EOF'
+<mobile-approval-note priority="read-before-add_repo">
+This is a remote_mobile session. The interactive add_repo approval does NOT
+reliably round-trip here — the calls in the directive below may fail with
+"MCP tool call requires approval" or "permission stream closed before response
+received", even when you fire them correctly. If they do: switch the session to
+AUTO MODE (which bypasses the interactive canUseTool card — empirically the fix)
+and retry the three add_repo calls, OR add the three spokes via the session-start
+"add repository" UI. Do not keep retrying add_repo in the same permission mode;
+the channel, not the call, is what is failing.
+</mobile-approval-note>
+EOF
+fi
+
 cat <<'EOF'
 <boot-recovery-directive priority="do-this-first">
 Boot came up DEGRADED — the memfs mount and/or the remembering skill are
