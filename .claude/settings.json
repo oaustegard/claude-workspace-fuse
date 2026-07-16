@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ./boot-ccotw.sh 2>&1 || echo 'Boot failed (non-fatal)'"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && bash ./boot-ccotw.sh 2>&1 || echo 'Boot failed (non-fatal)'"
           }
         ]
       }
@@ -17,11 +17,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /home/user/claude-workspace/scripts/check-store-on-stop.py 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && python3 ./scripts/check-store-on-stop.py 2>/dev/null || true"
           },
           {
             "type": "command",
-            "command": "bash ./persist-transcript.sh 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && bash ./persist-transcript.sh 2>/dev/null || true"
           }
         ]
       }
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ./persist-transcript.sh 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && bash ./persist-transcript.sh 2>/dev/null || true"
           }
         ]
       }
@@ -43,23 +43,23 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ./scripts/ensure-scope.sh 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && bash ./scripts/ensure-scope.sh 2>/dev/null || true"
           },
           {
             "type": "command",
-            "command": "bash ./scripts/inject-identity.sh 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && bash ./scripts/inject-identity.sh 2>/dev/null || true"
           },
           {
             "type": "command",
-            "command": "python3 ./scripts/derive-session-title.py 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && python3 ./scripts/derive-session-title.py 2>/dev/null || true"
           },
           {
             "type": "command",
-            "command": "bash ./scripts/rebuild-status.sh 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && bash ./scripts/rebuild-status.sh 2>/dev/null || true"
           },
           {
             "type": "command",
-            "command": "bash ./scripts/smoke-status.sh 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && bash ./scripts/smoke-status.sh 2>/dev/null || true"
           }
         ]
       }
@@ -71,16 +71,16 @@
           {
             "type": "command",
             "if": "Edit(**/Containerfile)",
-            "command": "nohup bash ./rebuild-layer.sh >/dev/null 2>&1 & true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && nohup bash ./rebuild-layer.sh >/dev/null 2>&1 & true"
           },
           {
             "type": "command",
             "if": "Write(**/Containerfile)",
-            "command": "nohup bash ./rebuild-layer.sh >/dev/null 2>&1 & true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && nohup bash ./rebuild-layer.sh >/dev/null 2>&1 & true"
           },
           {
             "type": "command",
-            "command": "python3 ./scripts/tdd_hook.py posttooluse 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && python3 ./scripts/tdd_hook.py posttooluse 2>/dev/null || true"
           }
         ]
       },
@@ -89,7 +89,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ./scripts/trim-tool-output.py 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && python3 ./scripts/trim-tool-output.py 2>/dev/null || true"
           }
         ]
       }
@@ -100,7 +100,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ./scripts/tdd_hook.py pretooluse 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && python3 ./scripts/tdd_hook.py pretooluse 2>/dev/null || true"
           }
         ]
       }
@@ -111,7 +111,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ./pre-compact-flush.py 2>/dev/null || true"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}\" && python3 ./pre-compact-flush.py 2>/dev/null || true"
           }
         ]
       }

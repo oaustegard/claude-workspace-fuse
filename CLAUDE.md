@@ -21,7 +21,7 @@ Everything below is inherited from the parent hub. The only deltas are:
 
 ## Reach for /mnt/muninn first
 
-The FUSE mount projects 1490+ memories as individual markdown files. Before
+The FUSE mount projects 2200+ memories as individual markdown files. Before
 WebSearch, before `recall()` over HTTP, before answering from training-data
 recall — if the task involves "what do we know about X", "have we done Y
 before", or "is there prior art on Z", grep the mount:
@@ -30,6 +30,19 @@ before", or "is there prior art on Z", grep the mount:
 grep -l 'X' /mnt/muninn/memories/*.md       # ~200ms across the whole corpus
 grep -lE 'pattern1|pattern2' /mnt/muninn/memories/*.md
 ```
+
+**Verify the mount before the first grep.** The memfs process can be dead even
+after a clean boot (see "Boot recovery" below), and grepping an empty mount
+silently returns nothing — which reads as "no prior art" when the truth is "no
+filesystem". Gate the first memory access of the session:
+
+```bash
+mountpoint -q /mnt/muninn || echo "MOUNT DOWN — invoke muninn-boot first"
+```
+
+If it's down, invoke the `muninn-boot` skill (or obey the
+`<boot-recovery-directive>` if one is present), *then* grep. Never conclude
+"nothing in memory" from an unmounted `/mnt/muninn`.
 
 Diagnosed miss (session 854f6b7c, 2026-05-17): wrote a tree-sitter grammar
 without checking the mount first; would have surfaced
@@ -173,25 +186,60 @@ them. Repos chosen that way are cloned *before* the `SessionStart` hook runs, so
 they would be in codeload scope from tick 0 — a real set-and-forget path if you
 always launch from a bookmarked prefill URL carrying all four slugs.
 
-**OPEN — needs one empirical test (flagged 2026-07-07).** Does session multi-repo
-selection **inline each repo's `CLAUDE.md`** the way `register_repo_root` does?
-The earlier claim here that the "add repository" feature "registers them fully /
-inlines every `CLAUDE.md`" **conflated it with `register_repo_root` and was never
-tested** — the only thing empirically confirmed (above) is that `add_repo`
-*without* `register_repo_root` doesn't inline. The test is Oskar's to run:
-launch one session via the 4-repo prefill URL, then observe (a) whether boot
-self-heals with the recovery directive never firing, and (b) whether the spoke
-`CLAUDE.md`s cross-talk in context. If (a) yes and (b) no → adopt the prefill URL
-as the standing launcher and demote this recovery to warm-fallback. If (b) yes →
-attach only the thin-`CLAUDE.md` spokes (`claude-container-layers` is a
-near-empty cache store) and keep `add_repo` recovery for `claude-skills` /
-`muninn-utilities`.
+**CLOSED — tested 2026-07-16 in a 4-repo session (flagged OPEN 2026-07-07).**
+Both questions answered, one each way:
+(a) **Yes, scope lands at tick 0** — with all four repos preselected, every
+spoke codeload fetch succeeded and `boot-ccotw.sh` ran clean at SessionStart
+(layers restored, skills fetched, remembering installed, identity written).
+(b) **Yes, the CLAUDE.mds inline and cross-talk** — all four repos' `CLAUDE.md`s
+land in context, including `claude-skills`' contradictory instructions ("gh IS
+available and authenticated" vs. this hub's "there is no gh path"). Session
+multi-repo selection behaves like `register_repo_root`, not like bare
+`add_repo`. Per the pre-registered decision rule: attach only thin-`CLAUDE.md`
+spokes if using the prefill URL, or accept the cross-talk as the price of
+zero-effort scope.
 
-**Until that test returns, this first-turn recovery remains the standing
-solution** — it grants exactly the codeload scope boot needs, on demand, without
-inlining anything. `add_repo` scope also persists across container **resumes**
-within a session, so warm resumes boot clean with no recovery needed (confirmed
-again 2026-07-07). Note: the Cloudflare-Worker fallback (`scripts/cf-gh-proxy/`,
+**And the same test surfaced two new failure modes** that the scope framing had
+hidden:
+
+1. **The memfs process gets reaped after the SessionStart hook exits.** Boot
+   ran clean, the memfs pulled all memories — then the FUSE process died when
+   the hook's process group was killed, leaving `/mnt/muninn` empty on turn 1.
+   The identical launch from a model turn persists. Mitigations now in place:
+   `_start_memfs_background` launches with `setsid` (escapes group-targeted
+   kills) and waits ~5s to log a definite mounted/not-mounted fact; if the
+   harness kills the whole cgroup anyway, `ensure-scope.sh` fires a directive
+   telling the model to remount via `muninn-boot` (a ~2s no-fetch operation
+   when scope is fine — the directive distinguishes this case from cold-start
+   scope lockdown by probing codeload).
+2. **Relative hook paths break in multi-repo sessions.** The session cwd is the
+   *parent* of the checkouts (`/home/user`), so every `bash ./scripts/...`
+   UserPromptSubmit hook exited 127 silently — the recovery directive never
+   fired even with the mount down, and `inject-identity.sh` never ran. All hook
+   commands in `.claude/settings.json` now `cd
+   "${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}"` first, and
+   `boot-ccotw.sh` self-locates from `BASH_SOURCE` instead of assuming cwd.
+   (This also fixed the Stop hook's `check-store-on-stop.py` path, which
+   pointed at `/home/user/claude-workspace/` — the parent repo's clone dir,
+   dead in every session of this fork.)
+
+**Why boot does NOT move to the CCotw environment setup script.** The
+environment's setup-script field runs shell before any turn, same as the
+SessionStart hook — it cannot call `add_repo`, so it solves nothing on
+single-repo cold starts; and in multi-repo sessions the SessionStart hook
+already boots fine. It would be a second copy of the same pre-turn shell with
+the same two blind spots. The division of labor stands: `boot-ccotw.sh` under
+SessionStart for anything pre-turn, `muninn-boot` (model-invocable) for the
+two things a pre-turn shell can't guarantee — scope widening and a FUSE
+process that outlives the hook. The one thing an environment setup script
+*might* add — children that survive into the session — is untested; if a
+future session shows setup-script processes escaping the reaper, revisit.
+
+**This first-turn recovery remains the standing solution** — it grants exactly
+the codeload scope boot needs, on demand, without inlining anything.
+`add_repo` scope also persists across container **resumes** within a session,
+so warm resumes boot clean with no recovery needed (confirmed again
+2026-07-07). Note: the Cloudflare-Worker fallback (`scripts/cf-gh-proxy/`,
 memory `8d31c188`) is **not present on this branch** — it never merged from
 `claude/github-credentials-routine-failures-7llbhp`, so treat it as unbuilt if
 the session-repo lever doesn't pan out.
