@@ -70,7 +70,7 @@ if ! mountpoint -q /mnt/muninn 2>/dev/null; then
     if python3 -c "import fuse" 2>/dev/null && command -v fusermount >/dev/null 2>&1; then
         fusermount -u /mnt/muninn 2>/dev/null || true
         mkdir -p /mnt/muninn
-        nohup python3 "$PROJECT_DIR/scripts/muninn_memfs.py" /mnt/muninn \
+        setsid nohup python3 "$PROJECT_DIR/scripts/muninn_memfs.py" /mnt/muninn \
             </dev/null >/tmp/.muninn-memfs.log 2>&1 &
         echo "[recover]   memfs remount kicked off (pid $!)"
         sleep 4

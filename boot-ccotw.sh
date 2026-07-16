@@ -17,7 +17,10 @@ echo ""
 set -e
 
 MARKER="/tmp/.container-layer-booted"
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+# Self-locate: in multi-repo sessions the session cwd is the PARENT of the
+# repo checkouts (/home/user), so "." is wrong. The script's own directory is
+# always the repo root, regardless of who invokes it from where.
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 CONTAINERFILE="$(cd "$PROJECT_DIR" && pwd)/Containerfile"
 SKILLS_DIR="/mnt/skills/user"
 
@@ -350,8 +353,25 @@ _start_memfs_background() {
     local script="$PROJECT_DIR/scripts/muninn_memfs.py"
     [ -f "$script" ] || { echo "  ✗ memfs script missing: $script"; return 0; }
     mkdir -p "$mount_point"
-    nohup python3 "$script" "$mount_point" </dev/null >/tmp/.muninn-memfs.log 2>&1 &
-    echo "  ✓ memfs mount kicked off (pid $!, log /tmp/.muninn-memfs.log)"
+    # setsid: detach into its own session/process group. Diagnosed 2026-07-16:
+    # a memfs launched with plain nohup from the SessionStart hook was reaped
+    # right after its bootstrap pull (hook's process group killed on exit);
+    # the identical launch from a model turn persisted. setsid escapes
+    # group-targeted kills; if the harness kills the whole cgroup this won't
+    # save it — ensure-scope.sh + the muninn-boot skill are the second line.
+    setsid nohup python3 "$script" "$mount_point" </dev/null >/tmp/.muninn-memfs.log 2>&1 &
+    local pid=$!
+    # The mount registers ~1s after launch (memory pull continues in-process).
+    # Wait briefly so the boot log carries a definite mounted/not-mounted fact.
+    for _ in 1 2 3 4 5; do
+        mountpoint -q "$mount_point" 2>/dev/null && break
+        sleep 1
+    done
+    if mountpoint -q "$mount_point" 2>/dev/null; then
+        echo "  ✓ memfs mounted at $mount_point (pid $pid, log /tmp/.muninn-memfs.log)"
+    else
+        echo "  ! memfs launched (pid $pid) but not mounted yet — if /mnt/muninn/memories is empty on turn 1, invoke the muninn-boot skill"
+    fi
 }
 
 _source_env() {

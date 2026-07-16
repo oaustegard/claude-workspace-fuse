@@ -15,6 +15,13 @@
 # hands the model the exact recovery it must perform on its first turn. The
 # model is the only surface that can call add_repo; this directive tells it to.
 #
+# SECOND FAILURE MODE (diagnosed 2026-07-16): scope can be fine (multi-repo
+# session, spokes preselected at launch) and boot can run clean — yet the
+# memfs FUSE process gets reaped when the SessionStart hook's process group
+# exits, so /mnt/muninn is dead by turn 1 anyway. That case needs no add_repo,
+# just a re-mount via the muninn-boot skill. This hook probes which case it is
+# and emits the matching directive.
+#
 # Fires only when boot is actually degraded (memfs unmounted OR remembering
 # absent). Silent on a healthy session. See CLAUDE.md "Boot recovery" and
 # memories 74901b87 / 900d382b / 8d31c188.
@@ -24,6 +31,36 @@ set -e
 # Healthy boot = memfs projecting memories AND the remembering skill present.
 # If both hold, there is nothing to recover — stay silent.
 if mountpoint -q /mnt/muninn 2>/dev/null && [ -d /mnt/skills/user/remembering ]; then
+    exit 0
+fi
+
+# Degraded. Which failure mode? Probe whether the spokes are already reachable:
+# a 403 from codeload means cold-start scope lockdown (add_repo needed); any
+# other code means scope is fine and only the boot/mount needs re-running.
+scope_ok=0
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 6 \
+    "https://codeload.github.com/oaustegard/claude-skills/tar.gz/main" 2>/dev/null || echo 000)
+[ "$code" != "403" ] && [ "$code" != "000" ] && scope_ok=1
+
+if [ "$scope_ok" = "1" ]; then
+    cat <<'EOF'
+<boot-recovery-directive priority="do-this-first">
+Boot is DEGRADED (memfs unmounted and/or remembering absent) but GitHub scope
+is fine — no add_repo needed. This is usually the reaped-memfs case: the FUSE
+process launched by the SessionStart hook was killed when the hook's process
+group exited, so /mnt/muninn is empty even though boot itself succeeded.
+
+Before doing anything else this turn:
+1. Invoke the muninn-boot skill (Skill tool, name "muninn-boot"), or run:
+   bash "${CLAUDE_PROJECT_DIR:-/home/user/claude-workspace-fuse}/.claude/skills/muninn-boot/scripts/boot.sh"
+   A process launched from a model turn persists; the remount takes ~2s.
+2. Confirm: `ls /mnt/muninn/memories | wc -l` reports ~2000+ memories.
+3. If identity (PROFILE/OPS) is absent from context, Read /tmp/muninn-boot-full.md.
+
+Do this silently and briefly — one line to Oskar that boot self-healed, then
+proceed with his actual request.
+</boot-recovery-directive>
+EOF
     exit 0
 fi
 
@@ -52,11 +89,10 @@ anything else this turn, recover:
    and the recovery output should show identity reloaded.
 
 Do this silently and briefly — one line to the user that boot self-healed,
-then proceed with their actual request. NOTE (docs-checked 2026-07-07): a CCotw
-*environment* has no source-repo list — it carries only name/network/env-vars/
-setup-script — so the spokes cannot be attached at the environment level. A
-*session* CAN preselect multiple repos (claude.ai/code?repositories=<slugs>), a
-candidate set-and-forget path, but whether that inlines each repo's CLAUDE.md is
-untested; until it's verified this first-turn recovery IS the standing solution.
+then proceed with his actual request. NOTE (tested 2026-07-16): launching a
+session with all four repos preselected DOES put the spokes in codeload scope
+from tick 0 (boot runs clean at SessionStart), but it also inlines every
+repo's CLAUDE.md into context — and the memfs process still needs the model-
+turn remount above. See CLAUDE.md "Boot recovery" for the full trade-off.
 </boot-recovery-directive>
 EOF
