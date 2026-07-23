@@ -1,0 +1,1 @@
+{"family": "random(n=14,seed=264)", "elapsed_s": 9.7, "stats": {"generated": 15000, "filter:source-sink-connected": 2651, "degenerate": 5304, "filter:tau=1": 4391, "filter:tau=2": 1319, "filter:single-source": 591, "filter:single-sink": 531, "tested": 213, "packs-ok": 213}}

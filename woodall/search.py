@@ -44,13 +44,14 @@ def check_instance(G: Digraph, k: int = 3) -> dict:
     return rec
 
 
-def run_liftings(base_name: str, limit: int | None, log):
+def run_liftings(base_name: str, limit: int | None, log,
+                 gadgets=GADGETS):
     base = {"D1": schrijver_d1, "D2": cg_d2, "D3": cg_d3}[base_name]()
     stats = collections.Counter()
     seen = set()
     candidates = []
     t0 = time.time()
-    for choices, G in enumerate_liftings(base, GADGETS, limit=limit):
+    for choices, G in enumerate_liftings(base, gadgets, limit=limit):
         stats["generated"] += 1
         if G is None:
             stats["degenerate"] += 1
@@ -74,8 +75,10 @@ def run_liftings(base_name: str, limit: int | None, log):
         elif rec["packs"]:
             stats["packs-ok"] += 1
     elapsed = time.time() - t0
-    summary = {"family": f"lift/{base_name}", "elapsed_s": round(elapsed, 1),
-               "stats": dict(stats)}
+    summary = {"family": f"lift/{base_name}", "gadgets": list(gadgets),
+               "exhaustive": limit is None or len(gadgets) ** sum(
+                   1 for c in base.caps if c == 0) <= limit,
+               "elapsed_s": round(elapsed, 1), "stats": dict(stats)}
     log.write(json.dumps(summary) + "\n")
     print(json.dumps(summary, indent=2))
     for choices, rec in candidates:
@@ -126,6 +129,8 @@ def main(argv=None):
     p1 = sub.add_parser("liftings")
     p1.add_argument("--base", default="D1", choices=["D1", "D2", "D3"])
     p1.add_argument("--limit", type=int, default=None)
+    p1.add_argument("--gadgets", default=",".join(GADGETS),
+                    help="comma-separated subset of " + ",".join(GADGETS))
     p2 = sub.add_parser("random")
     p2.add_argument("--n", type=int, default=12)
     p2.add_argument("--count", type=int, default=2000)
@@ -137,7 +142,8 @@ def main(argv=None):
     logpath = RUNS / f"{args.cmd}-{stamp}.jsonl"
     with open(logpath, "w") as log:
         if args.cmd == "liftings":
-            run_liftings(args.base, args.limit, log)
+            run_liftings(args.base, args.limit, log,
+                         gadgets=tuple(args.gadgets.split(",")))
         else:
             run_random(args.n, args.count, args.seed, log)
     print(f"log: {logpath}", file=sys.stderr)

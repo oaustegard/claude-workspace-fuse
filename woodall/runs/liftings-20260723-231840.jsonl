@@ -1,0 +1,1 @@
+{"family": "lift/D1", "gadgets": ["drop", "keep"], "exhaustive": false, "elapsed_s": 0.0, "stats": {"generated": 50, "filter:tau=1": 39, "filter:tau=2": 8, "iso-dup": 3}}

@@ -1,0 +1,1 @@
+{"family": "lift/D2", "gadgets": ["drop", "keep"], "exhaustive": true, "elapsed_s": 36.7, "stats": {"generated": 16384, "degenerate": 94, "filter:tau=1": 12261, "iso-dup": 60, "filter:tau=2": 3869, "tested": 100, "packs-ok": 100}}

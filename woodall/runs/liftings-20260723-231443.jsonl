@@ -1,0 +1,1 @@
+{"family": "lift/D1", "elapsed_s": 174.6, "stats": {"generated": 25000, "filter:single-source": 1942, "filter:tau=1": 5156, "filter:tau=2": 8286, "filter:single-sink": 1588, "tested": 4370, "packs-ok": 4370, "filter:source-sink-connected": 3479, "degenerate": 12, "iso-dup": 167}}

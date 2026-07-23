@@ -1,0 +1,3 @@
+{"family": "exhaustive(n=4)", "elapsed_s": 0.0, "stats": {"codes": 64, "connected": 38, "degree_ok": 0, "not_ssc": 0, "tau_ge_3": 0, "packs": 0, "CANDIDATES": 0}}
+{"family": "exhaustive(n=5)", "elapsed_s": 0.0, "stats": {"codes": 1024, "connected": 728, "degree_ok": 1, "not_ssc": 0, "tau_ge_3": 0, "packs": 0, "CANDIDATES": 0}}
+{"family": "exhaustive(n=6)", "elapsed_s": 0.2, "stats": {"codes": 32768, "connected": 26704, "degree_ok": 292, "not_ssc": 0, "tau_ge_3": 0, "packs": 0, "CANDIDATES": 0}}

@@ -17,6 +17,7 @@ families so far produce packings (conjecture-consistent). See "Run log" below.
 | `brute.py` | backtracking exact ν for tiny instances (independent of SAT stack) |
 | `examples.py` | (D₁,u₁) Schrijver 1980, ring(i) generalization, (D₂,u₂)/(D₃,u₃) Cornuéjols–Guenin 2002, D₂′ = D₂−(14→8) (Williams) |
 | `generator.py` | null-arc gadget liftings (drop/keep/subdivide×1/×2/contract), structure-guided random DAGs, hard filters |
+| `exhaustive.py` | exhaustive scan of ALL simple DAGs up to n vertices (topological-labeling enumeration; no iso-dedup, so nothing can be silently dropped) |
 | `search.py` | search driver, JSONL logging, candidate cross-verification |
 | `tests/` | the calibration gates |
 | `runs/` | JSONL run logs |
@@ -31,9 +32,13 @@ python3 -m pytest woodall/tests/ -v
 
 # search families
 python3 -m woodall.search liftings --base D1 --limit 25000
+python3 -m woodall.search liftings --base D1 --gadgets drop,keep   # exhaustive (2^12)
 python3 -m woodall.search liftings --base D2 --limit 25000
 python3 -m woodall.search liftings --base D3 --limit 25000
 python3 -m woodall.search random --n 12 --count 25000 --seed 163
+
+# exhaustive scan of ALL simple DAGs with <= 8 vertices
+python3 -m woodall.exhaustive 8
 ```
 
 ## Verifier design
@@ -127,17 +132,32 @@ Mészáros' theorem k=3 = prime power means its underlying graph must not be
 
 ## Run log / negative results
 
-See `runs/*.jsonl` and the PR description for the current totals. Headline
-findings so far:
+See `runs/*.jsonl` for raw logs. Headline findings (no ν<τ candidate
+anywhere):
 
-- **Naive liftings of D₁/D₂/D₃ collapse, measurably.** Across the gadget
-  grammar (drop/keep/sub1/sub2/contract per null arc), the overwhelming
-  majority of liftings die in filters: `drop` creates new small dicuts
-  (τ ≤ 2), `keep`/`sub*` restore source→sink reachability
-  (source-sink-connected ⇒ good), `contract` merges the conflict structure
-  away (single source/sink or τ collapse). The liftings that *do* reach
-  τ ≥ 3 all admit 3 disjoint dijoins — the dicut-conflict structure of the
-  EG examples does not survive uncapacitation under local gadgets. This is
+- **Every simple DAG on ≤ 7 vertices satisfies Woodall for τ ≥ 3 —
+  exhaustively.** `exhaustive.py` scanned all 2 097 152 upper-triangular
+  adjacency codes at n=7 (plus everything smaller): *zero* DAGs combine
+  "every source out-degree ≥ 3, every sink in-degree ≥ 3" with failure of
+  source-sink-connectivity. The candidate space at n ≤ 7 is literally empty
+  — any τ=3 counterexample among simple digraphs (WLOG a simple DAG) needs
+  **≥ 8 vertices**. Scope note: contracting SCCs of a general digraph can
+  create parallel arcs, and subdivision does not obviously preserve
+  counterexample-hood, so multigraph DAGs are *not* covered by this claim.
+- **Exhaustive {drop, keep} resolutions of all three EG counterexamples
+  fail.** All 2¹² = 4096 resolutions of D₁ and all 2¹⁴ = 16384 resolutions
+  each of D₂ and D₃: every lifting reaching τ ≥ 3 (24 / 100 / 18 of them
+  respectively, after iso-dedup) packs 3 disjoint dijoins. Likewise
+  exhaustive D₁ × {drop, contract} (1 survivor, packs) and D₁ × {keep, sub1}
+  (1376 survivors, all pack). The null arcs cannot be locally resolved by
+  deletion/promotion alone — new small dicuts (τ ≤ 2) or restored
+  source→sink reachability kill the conflict structure every time. This is
   the quantitative form of "the known-open lifting question" from the issue.
-- **Structure-guided random DAGs (n ≤ 16)**: every instance passing filters
-  packs. No ν < τ candidate.
+- **Sampled 5-gadget liftings** (drop/keep/sub1/sub2/contract, 25 000 per
+  base): every filter survivor packs — D₁: 4370/4370, D₂: 5400/5400, D₃:
+  4335/4335. Dominant kill reasons: τ ≤ 2 (new small dicuts from `drop`,
+  ~50% of instances) and restored source-sink-connectivity (`keep`/`sub*`,
+  ~10%).
+- **Structure-guided random DAGs**: n=12: 134/134 pack, n=14: 213/213,
+  n=16: 196/196. No ν < τ candidate anywhere (14 648 τ≥3 instances tested
+  in the sampled sweep, 0 UNSAT).
