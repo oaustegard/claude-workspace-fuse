@@ -6,10 +6,16 @@
 # fall back to these branches when codeload 403s.
 #
 # Runs on GitHub's infrastructure (no agent proxy), so it has normal access.
-# muninn-utilities is private: reading it needs the MIRROR_PAT repo secret
-# (a PAT with repo read on oaustegard/muninn-utilities). claude-skills is
-# public and needs no secret. Pushing the mirror branches uses the built-in
-# GITHUB_TOKEN.
+# Both sources are public as of 2026-07-22 (muninn-utilities was private when
+# this workflow was written; it no longer is), so the built-in GITHUB_TOKEN
+# covers both the read and the push and no MIRROR_PAT secret is needed. If
+# either repo goes private again, restore an authed clone for it.
+#
+# .github/workflows/ is stripped from the mirrored tree before committing:
+# GITHUB_TOKEN cannot create or update workflow files (there is no `workflows`
+# key in the workflow `permissions:` block — the scope only exists for PATs and
+# GitHub Apps), so any push carrying one is rejected outright. Consumers only
+# need the skill/utility trees, never the sources' own CI.
 name: Mirror session artifacts
 
 on:
@@ -29,25 +35,13 @@ jobs:
         include:
           - source: oaustegard/claude-skills
             branch: mirror/skills
-            private: false
           - source: oaustegard/muninn-utilities
             branch: mirror/muninn-utilities
-            private: true
     steps:
       - name: Clone source repo
-        env:
-          MIRROR_PAT: ${{ secrets.MIRROR_PAT }}
         run: |
-          if [ "${{ matrix.private }}" = "true" ]; then
-            if [ -z "$MIRROR_PAT" ]; then
-              echo "::error::MIRROR_PAT secret not set — cannot mirror private ${{ matrix.source }}"
-              exit 1
-            fi
-            git clone --depth 1 "https://x-access-token:${MIRROR_PAT}@github.com/${{ matrix.source }}.git" src
-          else
-            git clone --depth 1 "https://github.com/${{ matrix.source }}.git" src
-          fi
-          rm -rf src/.git
+          git clone --depth 1 "https://github.com/${{ matrix.source }}.git" src
+          rm -rf src/.git src/.github/workflows
 
       - name: Push orphan mirror branch
         run: |
