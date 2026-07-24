@@ -28,13 +28,15 @@ from .pack import pack, cross_verify_candidate
 RUNS = pathlib.Path(__file__).parent / "runs"
 
 
-def scan_n(n: int, log) -> dict:
+def scan_n(n: int, log, start: int = 0, end: int | None = None) -> dict:
     npairs = n * (n - 1) // 2
     pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
     stats = {"codes": 0, "connected": 0, "degree_ok": 0, "not_ssc": 0,
              "tau_ge_3": 0, "packs": 0, "CANDIDATES": 0}
     t0 = time.time()
-    for code in range(1 << npairs):
+    if end is None:
+        end = 1 << npairs
+    for code in range(start, end):
         stats["codes"] += 1
         out = [0] * n     # bitmask of out-neighbours
         inn = [0] * n
@@ -103,17 +105,28 @@ def scan_n(n: int, log) -> dict:
             log.write(json.dumps({"CANDIDATE": True, **rec}) + "\n")
             log.flush()
             print("CANDIDATE:", rec)
-    summary = {"family": f"exhaustive(n={n})", "elapsed_s": round(time.time() - t0, 1),
-               "stats": stats}
+    summary = {"family": f"exhaustive(n={n})", "range": [start, end],
+               "elapsed_s": round(time.time() - t0, 1), "stats": stats}
     log.write(json.dumps(summary) + "\n")
     print(json.dumps(summary))
     return summary
 
 
 def main():
+    # usage: exhaustive.py N_MAX            — scan n=4..N_MAX fully
+    #        exhaustive.py N chunk/nchunks  — scan one code-range chunk of n=N
     n_max = int(sys.argv[1]) if len(sys.argv) > 1 else 7
     RUNS.mkdir(exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
+    if len(sys.argv) > 2:
+        chunk, nchunks = map(int, sys.argv[2].split("/"))
+        npairs = n_max * (n_max - 1) // 2
+        total = 1 << npairs
+        start = total * chunk // nchunks
+        end = total * (chunk + 1) // nchunks
+        with open(RUNS / f"exhaustive-n{n_max}-chunk{chunk}of{nchunks}.jsonl", "w") as log:
+            scan_n(n_max, log, start, end)
+        return
     with open(RUNS / f"exhaustive-{stamp}.jsonl", "w") as log:
         for n in range(4, n_max + 1):
             scan_n(n, log)
