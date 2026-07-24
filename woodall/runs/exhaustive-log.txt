@@ -1,0 +1,95 @@
+{
+  "family": "lift/D1",
+  "gadgets": [
+    "drop",
+    "keep"
+  ],
+  "exhaustive": true,
+  "elapsed_s": 2.2,
+  "stats": {
+    "generated": 4096,
+    "degenerate": 46,
+    "filter:tau=1": 1111,
+    "iso-dup": 2690,
+    "filter:tau=2": 225,
+    "tested": 24,
+    "packs-ok": 24
+  }
+}
+log: /home/user/claude-workspace-fuse/woodall/runs/liftings-20260723-231834.jsonl
+{
+  "family": "lift/D1",
+  "gadgets": [
+    "drop",
+    "contract"
+  ],
+  "exhaustive": true,
+  "elapsed_s": 0.8,
+  "stats": {
+    "generated": 4096,
+    "degenerate": 261,
+    "filter:tau=1": 365,
+    "iso-dup": 3306,
+    "filter:single-source": 83,
+    "filter:source-sink-connected": 16,
+    "filter:single-sink": 61,
+    "filter:tau=2": 3,
+    "tested": 1,
+    "packs-ok": 1
+  }
+}
+log: /home/user/claude-workspace-fuse/woodall/runs/liftings-20260723-231837.jsonl
+{
+  "family": "lift/D1",
+  "gadgets": [
+    "keep",
+    "sub1"
+  ],
+  "exhaustive": true,
+  "elapsed_s": 24.4,
+  "stats": {
+    "generated": 4096,
+    "tested": 1376,
+    "packs-ok": 1376,
+    "iso-dup": 2720
+  }
+}
+log: /home/user/claude-workspace-fuse/woodall/runs/liftings-20260723-231838.jsonl
+{
+  "family": "lift/D2",
+  "gadgets": [
+    "drop",
+    "keep"
+  ],
+  "exhaustive": true,
+  "elapsed_s": 36.7,
+  "stats": {
+    "generated": 16384,
+    "degenerate": 94,
+    "filter:tau=1": 12261,
+    "iso-dup": 60,
+    "filter:tau=2": 3869,
+    "tested": 100,
+    "packs-ok": 100
+  }
+}
+log: /home/user/claude-workspace-fuse/woodall/runs/liftings-20260723-231902.jsonl
+{
+  "family": "lift/D3",
+  "gadgets": [
+    "drop",
+    "keep"
+  ],
+  "exhaustive": true,
+  "elapsed_s": 8.7,
+  "stats": {
+    "generated": 16384,
+    "degenerate": 78,
+    "filter:tau=1": 3023,
+    "iso-dup": 12343,
+    "filter:tau=2": 922,
+    "tested": 18,
+    "packs-ok": 18
+  }
+}
+log: /home/user/claude-workspace-fuse/woodall/runs/liftings-20260723-231939.jsonl

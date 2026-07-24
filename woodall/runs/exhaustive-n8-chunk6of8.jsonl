@@ -1,0 +1,1 @@
+{"family": "exhaustive(n=8)", "range": [201326592, 234881024], "elapsed_s": 353.9, "stats": {"codes": 33554432, "connected": 32239648, "degree_ok": 445788, "not_ssc": 13042, "tau_ge_3": 12378, "packs": 12378, "CANDIDATES": 0}}

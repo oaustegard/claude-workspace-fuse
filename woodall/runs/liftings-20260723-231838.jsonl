@@ -1,0 +1,1 @@
+{"family": "lift/D1", "gadgets": ["keep", "sub1"], "exhaustive": true, "elapsed_s": 24.4, "stats": {"generated": 4096, "tested": 1376, "packs-ok": 1376, "iso-dup": 2720}}

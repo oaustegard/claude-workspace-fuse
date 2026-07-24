@@ -1,0 +1,1 @@
+{"family": "lift/D1", "gadgets": ["drop", "contract"], "exhaustive": true, "elapsed_s": 0.8, "stats": {"generated": 4096, "degenerate": 261, "filter:tau=1": 365, "iso-dup": 3306, "filter:single-source": 83, "filter:source-sink-connected": 16, "filter:single-sink": 61, "filter:tau=2": 3, "tested": 1, "packs-ok": 1}}
