@@ -37,6 +37,11 @@ second source s′ symmetric-ly. Eliminating (or finding!) the n = 8
 candidates from these constraints is a finite but fiddly case analysis;
 the exhaustive scan settles it without case-analysis risk.
 
+**Settled (2026-07-24): the n = 8 scan came back clean.** 338 932 of the
+268 435 456 codes fail source-sink connectivity, 323 622 reach τ ≥ 3, and
+all of them pack 3 disjoint dijoins. Combined with the lemma: any
+simple-DAG counterexample has ≥ 9 vertices.
+
 ## Structural guidance not (yet) encoded as filters
 
 Schrijver's discussion notes (*Observations on Woodall's conjecture*,

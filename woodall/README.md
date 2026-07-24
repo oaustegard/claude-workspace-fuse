@@ -135,15 +135,20 @@ Mészáros' theorem k=3 = prime power means its underlying graph must not be
 See `runs/*.jsonl` for raw logs. Headline findings (no ν<τ candidate
 anywhere):
 
-- **Every simple DAG on ≤ 7 vertices satisfies Woodall for τ ≥ 3 —
-  exhaustively.** `exhaustive.py` scanned all 2 097 152 upper-triangular
-  adjacency codes at n=7 (plus everything smaller): *zero* DAGs combine
-  "every source out-degree ≥ 3, every sink in-degree ≥ 3" with failure of
-  source-sink-connectivity. The candidate space at n ≤ 7 is literally empty
-  — any τ=3 counterexample among simple digraphs (WLOG a simple DAG) needs
-  **≥ 8 vertices**. Scope note: contracting SCCs of a general digraph can
-  create parallel arcs, and subdivision does not obviously preserve
-  counterexample-hood, so multigraph DAGs are *not* covered by this claim.
+- **Every simple DAG on ≤ 8 vertices satisfies Woodall for τ ≥ 3 —
+  exhaustively.** For n ≤ 7 the candidate space is *empty*: zero DAGs
+  combine "every source out-degree ≥ 3, every sink in-degree ≥ 3" with
+  failure of source-sink-connectivity (all 2 097 152 codes at n=7 scanned;
+  also provable in four lines — see `THEORY.md`). At n = 8 the space is
+  nonempty and the machine work is real: of 268 435 456 adjacency codes,
+  338 932 fail source-sink-connectivity, 323 622 of those reach τ ≥ 3, and
+  **all 323 622 pack 3 disjoint dijoins** (0 UNSAT). Consistency check for
+  free: chunks of the scan related by orientation-preserving relabelings
+  produced bit-identical statistics. Net: any τ=3 counterexample among
+  simple digraphs (WLOG a simple DAG) needs **≥ 9 vertices**. Scope note:
+  contracting SCCs of a general digraph can create parallel arcs, and
+  subdivision does not obviously preserve counterexample-hood, so
+  multigraph DAGs are *not* covered by this claim.
 - **Exhaustive {drop, keep} resolutions of all three EG counterexamples
   fail.** All 2¹² = 4096 resolutions of D₁ and all 2¹⁴ = 16384 resolutions
   each of D₂ and D₃: every lifting reaching τ ≥ 3 (24 / 100 / 18 of them
