@@ -1,0 +1,164 @@
+{
+  "manifest_version": "0.3",
+
+  "tool": {
+    "id": "muninn-bsky-limit",
+    "version": "0.1.0",
+    "name": "Muninn bsky_limit",
+    "summary": "Bluesky 300-grapheme length checker and truncator. len() lies on emoji and ZWJ sequences; this counts graphemes correctly and truncates at the last whitespace boundary.",
+    "description": "Two-function helper used by anything that posts to Bluesky. fits(text, limit=300) returns whether the text fits the AppView's grapheme cap; truncate(text, limit=300, suffix='…') walks back to the last whitespace under the cap and appends the suffix. Pure compute: no I/O, no environment, no state. Depends on the `grapheme` PyPI package, which the module pip-installs at import time if missing (the only side-effect surface). Manifested here as the shared-credential / shared-dependency reuse case for Bluesky utilities (bsky_card, blog_publish, whtwnd) and as the v0.3-spec stress-test of 'a tool whose only declarable scope is compute.local'.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/bsky_limit.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": ["bluesky", "atproto", "grapheme", "text-utility", "length-check"]
+  },
+
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "git",
+      "url": "https://github.com/oaustegard/muninn-utilities",
+      "ref": "71f39312f46be77967545ef404bfcb88698bf986",
+      "subpath": "muninn_utils"
+    },
+    "entrypoint": {
+      "command": ["python", "-m", "muninn_utils.bsky_limit"]
+    }
+  },
+
+  "scopes": [
+    {
+      "resource": "compute.local",
+      "actions": ["read"],
+      "rationale": "Pure string computation. The only non-pure surface is a one-time pip install of `grapheme` if absent at import time."
+    }
+  ],
+
+  "actions": [
+    {
+      "name": "fits",
+      "summary": "Return whether the given text fits the Bluesky 300-grapheme post limit.",
+      "description": "Counts graphemes (not codepoints, not bytes) using the `grapheme` package. The default limit is 300 to match Bluesky's AppView; callers may override for other surfaces.",
+      "docs": {
+        "goal": "Check whether text fits Bluesky's 300-grapheme cap.",
+        "inputs_brief": "text (req), limit (int, default 300)",
+        "outputs_brief": "{fits: bool, length: int}",
+        "errors_brief": "(none — pure compute)",
+        "example": "fits text='Hello 👋' limit=300"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": ["fits"]
+      },
+      "input": {
+        "type": "object",
+        "required": ["text"],
+        "additionalProperties": false,
+        "properties": {
+          "text": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 300 }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": ["fits", "length"],
+          "properties": {
+            "fits": { "type": "boolean" },
+            "length": { "type": "integer", "minimum": 0 }
+          }
+        }
+      },
+      "side_effects": "none",
+      "idempotent": true,
+      "scopes_used": ["compute.local"],
+      "error_envelope": "standard",
+      "examples": [
+        {
+          "description": "Plain ASCII fits.",
+          "input": { "text": "Hello world" },
+          "output": { "fits": true, "length": 11 }
+        },
+        {
+          "description": "Emoji counts as one grapheme, not four bytes.",
+          "input": { "text": "👋" },
+          "output": { "fits": true, "length": 1 }
+        }
+      ],
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "truncate",
+      "summary": "Truncate text to fit the grapheme limit, walking back to the last whitespace boundary if possible.",
+      "description": "If the text already fits, return it unchanged. Otherwise slice to (limit - len(suffix)) graphemes, walk back to the last space/newline/tab, and append the suffix. Returns at most `limit` graphemes total.",
+      "docs": {
+        "goal": "Trim text to fit Bluesky's grapheme cap without breaking words.",
+        "inputs_brief": "text (req), limit (int, default 300), suffix (string, default '…')",
+        "outputs_brief": "{text: string, length: int, truncated: bool}",
+        "errors_brief": "(none — pure compute)",
+        "example": "truncate text='very long...' limit=50"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": ["truncate"]
+      },
+      "input": {
+        "type": "object",
+        "required": ["text"],
+        "additionalProperties": false,
+        "properties": {
+          "text": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 300 },
+          "suffix": { "type": "string", "default": "…" }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": ["text", "length", "truncated"],
+          "properties": {
+            "text": { "type": "string" },
+            "length": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" }
+          }
+        }
+      },
+      "side_effects": "none",
+      "idempotent": true,
+      "scopes_used": ["compute.local"],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+
+  "smoke": {
+    "kind": "shell",
+    "command": ["python", "-c", "from muninn_utils.bsky_limit import fits, truncate\nassert fits('hello') is True\nassert fits('x' * 301) is False\nassert truncate('x' * 400).endswith('…')\nprint('OK')\n"],
+    "timeout_seconds": 10,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK$"
+    }
+  },
+
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/bsky-limit/REVOKE.md"
+  },
+
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/bsky_limit.py"
+  }
+}

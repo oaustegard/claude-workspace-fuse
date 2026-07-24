@@ -1,0 +1,27 @@
+{
+  "_comment": "Trigger-first capability routing for boot output. Rendered by scripts/capabilities.py into the CAPABILITIES block. Override in-session via config('capability-map') — same pattern as ops-topics. kind=protocol rows render verbatim (optional `exists` path probe gates environment-specific rows; {skills} expands to the skills mount). kind=skill rows pull their trigger text live from the skill's SKILL.md frontmatter description at render time, so this file lists names only and cannot rot; an optional `when` field overrides the pulled description. Curation over completeness — boot_ledger measures whether entries earn their tokens.",
+  "version": 1,
+  "entries": [
+    {
+      "kind": "protocol",
+      "when": "\"What do we know about X?\" / \"have we done this before?\" / prior art — BEFORE re-solving or answering from training data",
+      "reach": "mountpoint -q /mnt/muninn && grep -l 'X' /mnt/muninn/memories/*.md; if unmounted or no hits, recall('X')",
+      "exists": "/mnt/muninn/memories"
+    },
+    {
+      "kind": "protocol",
+      "when": "About to write \"yesterday\", \"recently\", \"a few months ago\", or any duration word",
+      "reach": "ground it first — cat /tmp/LOCAL_DATE, memory timestamps, git log; never narrative time"
+    },
+    { "kind": "skill", "name": "flowing" },
+    { "kind": "skill", "name": "tree-sitting" },
+    { "kind": "skill", "name": "exploring-codebases" },
+    { "kind": "skill", "name": "composing-html" },
+    { "kind": "skill", "name": "charting" },
+    { "kind": "skill", "name": "browsing-bluesky" },
+    { "kind": "skill", "name": "uploading-files" },
+    { "kind": "skill", "name": "iterating" },
+    { "kind": "skill", "name": "json-render-ui" },
+    { "kind": "skill", "name": "creating-skill" }
+  ]
+}

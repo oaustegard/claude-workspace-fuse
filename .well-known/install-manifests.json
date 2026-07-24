@@ -1,0 +1,195 @@
+{
+  "version": "1",
+  "publisher": {
+    "kind": "github",
+    "id": "oaustegard/muninn-utilities",
+    "display_name": "Muninn Utilities"
+  },
+  "generated_at": "2026-05-28T00:00:00Z",
+  "manifests": [
+    {
+      "id": "muninn-blog-publish",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/blog-publish/muninn-blog-publish.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Publish HTML pages to austegard.com via GitHub Pages, optionally update the Atom feed, optionally announce on Bluesky with a follow-up engagement-link commit. Encoded as a flowing DAG so the bsky chain is detached and partial-failure-tolerant.",
+      "tags": [
+        "publishing",
+        "github-pages",
+        "atom-feed",
+        "blog",
+        "bluesky",
+        "flowing"
+      ]
+    },
+    {
+      "id": "muninn-bsky-card",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/bsky-card/muninn-bsky-card.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Compose and publish Bluesky posts with rich link-card embeds (Open Graph preview). Python module; app-password auth; reads arbitrary URLs to extract OG metadata, then posts via the authenticated PDS.",
+      "tags": [
+        "bluesky",
+        "atproto",
+        "social",
+        "posting",
+        "link-card"
+      ]
+    },
+    {
+      "id": "muninn-bsky-limit",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/bsky-limit/muninn-bsky-limit.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Bluesky 300-grapheme length checker and truncator. len() lies on emoji and ZWJ sequences; this counts graphemes correctly and truncates at the last whitespace boundary.",
+      "tags": [
+        "bluesky",
+        "atproto",
+        "grapheme",
+        "text-utility",
+        "length-check"
+      ]
+    },
+    {
+      "id": "muninn-issue-close",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/issue-close/muninn-issue-close.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Close a GitHub issue with a learning synthesis. Posts the synthesis as a closing comment, then writes it as a `decision` memory tagged with the issue number — encoded as a flowing DAG so the close ack returns the moment GitHub returns 2xx, while the memory write happens detached.",
+      "tags": [
+        "github",
+        "issues",
+        "decision-memory",
+        "learning-synthesis",
+        "flowing"
+      ]
+    },
+    {
+      "id": "muninn-memory-tfidf",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/memory-tfidf/muninn-memory-tfidf.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "TF-IDF index over Muninn's memory summaries. Read-only similarity search, near-duplicate detection, clustering, and outlier identification across the memory store.",
+      "tags": [
+        "tf-idf",
+        "similarity",
+        "clustering",
+        "memory",
+        "read-only"
+      ]
+    },
+    {
+      "id": "muninn-news-watch",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/news-watch/muninn-news-watch.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Watch claude.com/blog for new posts during Daily Perch. Pure parsing + watermark state; HTTP fetching is delegated to the caller's web_fetch tool (claude.com WAFs raw container egress).",
+      "tags": [
+        "news",
+        "watermark",
+        "claude-blog",
+        "parsing",
+        "perch"
+      ]
+    },
+    {
+      "id": "muninn-perch-publish",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/perch-publish/muninn-perch-publish.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Publish a perch flight log (GitHub discussion) to muninn.austegard.com/perch/ as HTML, updating the perch index and Atom feed.",
+      "tags": [
+        "publishing",
+        "github-pages",
+        "atom-feed",
+        "perch",
+        "discussions"
+      ]
+    },
+    {
+      "id": "muninn-perch-triage",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/perch-triage/muninn-perch-triage.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Triage open Perch flight-log discussions by reaction signal. Groups them into action buckets (auto-close, discuss, file-issue, hold, correct, nag). Optional auto-close path executes the THUMBS_UP/LAUGH bucket.",
+      "tags": [
+        "github",
+        "discussions",
+        "triage",
+        "flight-logs",
+        "reactions"
+      ]
+    },
+    {
+      "id": "muninn-remind",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/remind/muninn-remind.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Reminder system over the Muninn memory store. Create one-shot or recurring reminders, mark them done, snooze them, sweep stale ones. All persistence rides on the same Turso DB as the rest of Muninn's memory subsystem.",
+      "tags": [
+        "reminders",
+        "memory",
+        "scheduling",
+        "recurring",
+        "muninn-internal"
+      ]
+    },
+    {
+      "id": "muninn-task-policy",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/task-policy/muninn-task-policy.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Load the live policy for a perch autonomous task. Reads the {task}-command ops entry, recent preference memories, and the most recent real run, so task prompts route to fresh policy rather than hardcoded behavior.",
+      "tags": [
+        "policy",
+        "perch",
+        "config",
+        "memory",
+        "muninn-internal"
+      ]
+    },
+    {
+      "id": "muninn-verify-patch",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/verify-patch/muninn-verify-patch.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Semi-formal patch verification with outcome tracking. Sends a unified diff plus context to a Claude model with a structured premises/trace/regression-check template, stores the verification result in memory, and exposes review/stamp helpers for post-merge calibration.",
+      "tags": [
+        "verification",
+        "patch-review",
+        "calibration",
+        "anthropic",
+        "memory"
+      ]
+    },
+    {
+      "id": "muninn-whtwnd",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/whtwnd/muninn-whtwnd.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Publish, update, delete, and list WhiteWind blog entries via ATProto. Posts land in the user's PDS as `com.whtwnd.blog.entry` records and federate to the WhiteWind AppView.",
+      "tags": [
+        "atproto",
+        "whtwnd",
+        "blog",
+        "publishing",
+        "federated"
+      ]
+    },
+    {
+      "id": "muninn-zeitgeist-delta",
+      "manifest_url": "https://raw.githubusercontent.com/oaustegard/muninn-utilities/main/manifests/zeitgeist-delta/muninn-zeitgeist-delta.v0.4.json",
+      "manifest_version": "0.4",
+      "status": "active",
+      "summary": "Semantic deduplication for zeitgeist drafts. Compares each topic section of a candidate zeitgeist memory against the N most-recent stored zeitgeists using Gemini embeddings (via Cloudflare AI Gateway) and emits a delta-only compressed version.",
+      "tags": [
+        "embeddings",
+        "deduplication",
+        "memory",
+        "llm",
+        "gemini",
+        "cloudflare-ai-gateway"
+      ]
+    }
+  ]
+}
