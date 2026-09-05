@@ -1,0 +1,415 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-news-watch",
+    "version": "0.1.0",
+    "name": "Muninn news_watch",
+    "summary": "Watch claude.com/blog for new posts during Daily Perch. Pure parsing + watermark state; HTTP fetching is delegated to the caller's web_fetch tool (claude.com WAFs raw container egress).",
+    "description": "Five functions: parse_claude_blog(content) extracts post links, dates and categories from rendered blog-index content; filter_new(posts, last_seen) returns posts strictly newer than the watermark; get_last_seen/set_last_seen read and write a single ISO date in Turso config (key 'claude-blog-last-seen-iso', category 'ops'); format_for_report(new_posts) renders HTML <li> rows for the perch report. First run (last_seen is None) returns no new posts so the seed run doesn't alert on already-historical content; the watermark advances even when no new posts are found to avoid re-scanning the same back-window. The tool itself does NOT make outbound HTTP fetches against claude.com — that's the caller's web_fetch (claude.com 403s raw HTTP from container egress); the tool only parses content the caller already fetched and reads/writes the watermark in Turso.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/news_watch.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "news",
+      "watermark",
+      "claude-blog",
+      "parsing",
+      "perch"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.news_watch"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.news_watch"
+      ]
+    }
+  },
+  "env": [
+    {
+      "name": "TURSO_TOKEN",
+      "prompt": "Turso libSQL auth token for the Muninn memory database. Required for the watermark read/write (get_last_seen / set_last_seen route through `scripts.config_get`/`config_set`, which uses these credentials). Treat as a secret.",
+      "secret": true,
+      "required": true,
+      "obtain_url": "https://app.turso.tech/"
+    },
+    {
+      "name": "TURSO_URL",
+      "prompt": "Hostname of the Muninn memory libSQL database, e.g. 'mydb-username.turso.io'.",
+      "secret": false,
+      "required": true,
+      "validation_regex": "^[a-z0-9-]+\\.[a-z0-9-]+\\.turso\\.io$"
+    }
+  ],
+  "scopes": [
+    {
+      "resource": "memory.tracking",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Reads and writes a single watermark value in the Turso config table (key 'claude-blog-last-seen-iso', category 'ops') so consecutive perch runs only surface posts newer than the last-seen date.",
+      "provider_scope": "turso-libsql-token (coarse; full DB access)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Talks to the configured Turso libSQL host for watermark state. No direct HTTP fetches against claude.com or any caller-supplied URL — fetching is the caller's responsibility via web_fetch.",
+      "provider_scope": "*.turso.io"
+    }
+  ],
+  "actions": [
+    {
+      "name": "parse_claude_blog",
+      "summary": "Extract blog posts from the rendered content of claude.com/blog. Pure parse — no I/O.",
+      "description": "Regex-based extractor that anchors on links to /blog/<slug>, walks the surrounding 600-char window backwards to find the nearest date (Month D, YYYY), and matches standalone category labels against a known list. Returns post dicts de-duplicated by URL, sorted newest-first by date, filtered to those with a parseable date.",
+      "docs": {
+        "goal": "Parse a fetched copy of claude.com/blog into structured post records.",
+        "inputs_brief": "content (req: rendered blog-index page; markdown or HTML — the regex shape matches either)",
+        "outputs_brief": "{posts: [{url, title, date (YYYY-MM-DD), category}]}",
+        "errors_brief": "(none — returns an empty list on parse miss)",
+        "example": "parse_claude_blog content='...blog page text...'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "parse-claude-blog"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "posts"
+          ],
+          "properties": {
+            "posts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "url",
+                  "title",
+                  "date"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "category": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "side_effects": "none",
+      "idempotent": true,
+      "scopes_used": [],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "filter_new",
+      "summary": "Return posts strictly newer than the watermark. Read-only, pure compute.",
+      "description": "Drops posts whose ISO date is <= last_seen. When last_seen is null (first run) returns an empty list — the seed run does not alert on historical content; the caller still advances set_last_seen so the next run alerts on anything published in between.",
+      "docs": {
+        "goal": "Filter parsed posts down to those newer than the watermark.",
+        "inputs_brief": "posts (req: from parse_claude_blog), last_seen (ISO date or null)",
+        "outputs_brief": "{new_posts: [...]}",
+        "errors_brief": "(none — pure compute)",
+        "example": "filter_new posts=[...] last_seen='2026-05-20'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "filter-new"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "posts"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "posts": {
+            "type": "array"
+          },
+          "last_seen": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "new_posts"
+          ],
+          "properties": {
+            "new_posts": {
+              "type": "array"
+            }
+          }
+        }
+      },
+      "side_effects": "none",
+      "idempotent": true,
+      "scopes_used": [],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "get_last_seen",
+      "summary": "Read the last-seen ISO date watermark from Turso config.",
+      "description": "Calls scripts.config_get('claude-blog-last-seen-iso'). Returns the stored ISO date, or null when the key is unset (first run).",
+      "docs": {
+        "goal": "Fetch the watermark for the next perch run.",
+        "inputs_brief": "key (optional, default 'claude-blog-last-seen-iso')",
+        "outputs_brief": "{last_seen: string|null}",
+        "errors_brief": "tracking_unconfigured",
+        "example": "get_last_seen"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "get-last-seen"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "default": "claude-blog-last-seen-iso"
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "last_seen"
+          ],
+          "properties": {
+            "last_seen": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "side_effects": "read",
+      "idempotent": true,
+      "scopes_used": [
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "set_last_seen",
+      "summary": "Write the last-seen ISO date watermark to Turso config under category 'ops'.",
+      "description": "Calls scripts.config_set(key, iso, 'ops'). Idempotent at the storage layer (re-setting to the same value is a no-op semantically; the underlying upsert touches the row).",
+      "docs": {
+        "goal": "Advance the watermark to the supplied ISO date.",
+        "inputs_brief": "iso (req: YYYY-MM-DD), key (optional, default 'claude-blog-last-seen-iso')",
+        "outputs_brief": "{stored: bool}",
+        "errors_brief": "tracking_unconfigured, iso_invalid",
+        "example": "set_last_seen iso='2026-05-27'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "set-last-seen"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "iso"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "iso": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "key": {
+            "type": "string",
+            "default": "claude-blog-last-seen-iso"
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "stored"
+          ],
+          "properties": {
+            "stored": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "side_effects": "write",
+      "idempotent": true,
+      "scopes_used": [
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "format_for_report",
+      "summary": "Render new posts as HTML <li> rows for the perch report. Pure compute, read-only.",
+      "description": "Returns inner HTML (no <ul> wrapper) so callers can omit the entire section when no posts are new — silence is the signal. Each row is <li><a>title</a> <em>(category)</em> — date</li>; categories are omitted when null. HTML-escapes title and category text.",
+      "docs": {
+        "goal": "Format filtered posts for the perch HTML report.",
+        "inputs_brief": "new_posts (req: list from filter_new)",
+        "outputs_brief": "{html: string}",
+        "errors_brief": "(none — pure compute)",
+        "example": "format_for_report new_posts=[{url, title, date, category}]"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "format-for-report"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "new_posts"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "new_posts": {
+            "type": "array"
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "html"
+          ],
+          "properties": {
+            "html": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "side_effects": "none",
+      "idempotent": true,
+      "scopes_used": [],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "data_boundary": {
+    "reads": [
+      {
+        "resource": "memory.tracking",
+        "sensitivity": "low"
+      }
+    ],
+    "transmits": [],
+    "persists": [
+      {
+        "where": "tool_local",
+        "fields": [
+          "watermark.iso_date"
+        ]
+      }
+    ],
+    "retention": {
+      "tool_local_days": 365
+    }
+  },
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.news_watch import parse_claude_blog, filter_new, format_for_report\nposts = parse_claude_blog('[Test post](https://claude.com/blog/test-post) May 10, 2026')\nassert isinstance(posts, list)\nnew = filter_new(posts, last_seen='2026-04-01')\nassert format_for_report(new) == '' or '<li>' in format_for_report(new)\nprint('OK: news_watch public surface present')\n"
+    ],
+    "timeout_seconds": 5,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK: news_watch public surface present$"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/news-watch/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/news_watch.py"
+  }
+}

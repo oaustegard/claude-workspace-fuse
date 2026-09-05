@@ -1,0 +1,308 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-verify-patch",
+    "version": "0.1.0",
+    "name": "Muninn verify_patch",
+    "summary": "Semi-formal patch verification with outcome tracking. Sends a unified diff plus context to a Claude model with a structured premises/trace/regression-check template, stores the verification result in memory, and exposes review/stamp helpers for post-merge calibration.",
+    "description": "Read-and-reason utility, not a write/execute one. The model is invoked via the orchestrating-agents skill's `claude_client.invoke_claude` (uses ANTHROPIC_API_KEY). Verification results are persisted via the remembering library (uses TURSO_TOKEN, TURSO_URL) so the prediction can later be compared to actual merge outcome via `stamp_verification(tracking_id, outcome)`. The outcome ledger feeds calibration analysis (review_verifications) \u2014 over time, this surfaces patterns of overconfident verdicts.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/verify_patch.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "verification",
+      "patch-review",
+      "calibration",
+      "anthropic",
+      "memory"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.verify_patch"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.verify_patch"
+      ]
+    }
+  },
+  "env": [
+    {
+      "name": "ANTHROPIC_API_KEY",
+      "prompt": "Anthropic API key. Used to invoke the Claude model that performs the structured review (sonnet-4-6 by default; configurable per call). Read indirectly via the orchestrating-agents skill's claude_client; verify_patch itself does not reference os.environ for this name.",
+      "secret": true,
+      "required": true,
+      "validation_regex": "^sk-ant-[A-Za-z0-9_-]+$",
+      "obtain_url": "https://console.anthropic.com/settings/keys"
+    },
+    {
+      "name": "TURSO_TOKEN",
+      "prompt": "Turso database token. Used to persist verification predictions and outcomes for calibration analysis. Read indirectly via the remembering library (`from scripts import remember, recall, supersede`).",
+      "secret": true,
+      "required": true,
+      "obtain_url": "https://docs.turso.tech/cli/auth/token"
+    },
+    {
+      "name": "TURSO_URL",
+      "prompt": "Turso database URL. Read indirectly via the remembering library.",
+      "secret": false,
+      "required": true,
+      "validation_regex": "^[A-Za-z0-9._-]+\\.turso\\.io$",
+      "obtain_url": "https://docs.turso.tech/sdk/python/quickstart"
+    }
+  ],
+  "scopes": [
+    {
+      "resource": "anthropic.messages",
+      "actions": [
+        "write"
+      ],
+      "rationale": "Sends the patch + context + structured prompt to the Anthropic Messages API and reads the verdict. Per-call cost depends on patch size and selected model.",
+      "provider_scope": "anthropic-api-key (full account)"
+    },
+    {
+      "resource": "turso.libsql",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Persists the verification record (patch hash, verdict, tracking_id) and later stamps it with merge outcome. Reads via review_verifications to surface the recent prediction ledger.",
+      "provider_scope": "turso-token (single database)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "api.anthropic.com for model invocation; *.turso.io for memory writes.",
+      "provider_scope": "api.anthropic.com, *.turso.io"
+    }
+  ],
+  "actions": [
+    {
+      "name": "verify_patch",
+      "summary": "Run a structured semi-formal review on a unified diff and persist the verdict for later calibration.",
+      "description": "Embeds the patch and optional context into a fixed template (premises / function resolution / execution trace / regression check / edge cases), invokes the configured Claude model, parses out a verdict, and writes a memory record tagged for later outcome stamping. Returns {tracking_id, verdict, model, raw_response}.",
+      "docs": {
+        "goal": "Get a structured review of a patch with persisted outcome tracking.",
+        "inputs_brief": "patch (req: unified diff text), context (optional), description (optional), model (default claude-sonnet-4-6)",
+        "outputs_brief": "{tracking_id, verdict, model, raw_response}",
+        "errors_brief": "auth_invalid, model_unavailable, storage_failed",
+        "example": "verify_patch patch='--- a/x.py\\n+++ b/x.py\\n...' context='function foo signature' description='fix off-by-one'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "verify-patch"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "patch"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "patch": {
+            "type": "string",
+            "minLength": 1
+          },
+          "context": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string",
+            "default": "claude-sonnet-4-6"
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "tracking_id",
+            "verdict"
+          ],
+          "properties": {
+            "tracking_id": {
+              "type": "string"
+            },
+            "verdict": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "raw_response": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "side_effects": "write",
+      "idempotent": false,
+      "scopes_used": [
+        "anthropic.messages",
+        "turso.libsql",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "stamp_verification",
+      "summary": "Record the actual outcome (merged/rejected/reverted) for a prior verification, enabling calibration analysis.",
+      "description": "Looks up the memory record by tracking_id and supersedes it with an outcome-stamped version.",
+      "docs": {
+        "goal": "Close the loop on a prediction.",
+        "inputs_brief": "tracking_id (req), outcome (req: merged|rejected|reverted), note (optional)",
+        "outputs_brief": "{stamped: bool, new_id: str}",
+        "errors_brief": "tracking_id_not_found, storage_failed",
+        "example": "stamp_verification tracking_id='abc123' outcome='merged'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "stamp-verification"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "tracking_id",
+          "outcome"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "tracking_id": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "merged",
+              "rejected",
+              "reverted"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "stamped"
+          ],
+          "properties": {
+            "stamped": {
+              "type": "boolean"
+            },
+            "new_id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "side_effects": "write",
+      "idempotent": true,
+      "scopes_used": [
+        "turso.libsql"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "data_boundary": {
+    "reads": [
+      {
+        "resource": "turso.libsql",
+        "sensitivity": "medium"
+      }
+    ],
+    "transmits": [
+      {
+        "to": "api.anthropic.com",
+        "fields": [
+          "env.ANTHROPIC_API_KEY",
+          "input.patch",
+          "input.context",
+          "input.description"
+        ],
+        "purpose": "model invocation for structured review",
+        "third_party_retention": "persistent-30d",
+        "vendor_tos_url": "https://www.anthropic.com/legal/commercial-terms"
+      },
+      {
+        "to": "*.turso.io",
+        "fields": [
+          "env.TURSO_TOKEN",
+          "computed.verdict",
+          "computed.tracking_id"
+        ],
+        "purpose": "persist verification record and outcome stamp",
+        "third_party_retention": "persistent-indefinite",
+        "vendor_tos_url": "https://turso.tech/legal/terms-of-service"
+      }
+    ],
+    "persists": [
+      {
+        "where": "tool_local",
+        "fields": [
+          "patch_hash",
+          "verdict",
+          "tracking_id",
+          "outcome"
+        ]
+      }
+    ],
+    "retention": {
+      "tool_local_days": 365
+    }
+  },
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "import os\nassert os.environ.get('ANTHROPIC_API_KEY'), 'ANTHROPIC_API_KEY not set'\nassert os.environ.get('TURSO_TOKEN'), 'TURSO_TOKEN not set'\nassert os.environ.get('TURSO_URL'), 'TURSO_URL not set'\nprint('OK: required env present')\n"
+    ],
+    "timeout_seconds": 5,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "OK: required env present"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/verify-patch/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "per-call"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/verify_patch.py"
+  }
+}

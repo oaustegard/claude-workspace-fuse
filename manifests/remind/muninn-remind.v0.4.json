@@ -1,0 +1,557 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-remind",
+    "version": "0.1.0",
+    "name": "Muninn remind",
+    "summary": "Reminder system over the Muninn memory store. Create one-shot or recurring reminders, mark them done, snooze them, sweep stale ones. All persistence rides on the same Turso DB as the rest of Muninn's memory subsystem.",
+    "description": "Six operations: remind, remind_done, remind_snooze, remind_due, remind_list, remind_sweep. Each reminder is a `procedure`-typed memory tagged `remind`, `remind-active`, and `remind-<kind>`. The reminder's due time is encoded in the memory's `valid_from` field; recurring reminders update `valid_from` forward when completed; nag-kind reminders re-surface every boot until done; notice-kind auto-resolve after first surface. The tool is a thin write-and-tag layer over the `remembering` skill \u2014 every persistent operation is a `_remember` / `_exec` call against Turso. Issue #5 calls this out as the test for a tool that writes to the user's external reminder system; v0.4 `writes[]` would distinguish this from third-party transmits the way it would for blog_publish.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/remind.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "reminders",
+      "memory",
+      "scheduling",
+      "recurring",
+      "muninn-internal"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.remind"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.remind"
+      ]
+    }
+  },
+  "env": [
+    {
+      "name": "TURSO_TOKEN",
+      "prompt": "Turso libSQL auth token for the Muninn memory database. The reminder primitives all write through the `remembering` skill, which uses these credentials. Required.",
+      "secret": true,
+      "required": true,
+      "obtain_url": "https://app.turso.tech/"
+    },
+    {
+      "name": "TURSO_URL",
+      "prompt": "Hostname of the Muninn memory libSQL database, e.g. 'mydb-username.turso.io'.",
+      "secret": false,
+      "required": true,
+      "validation_regex": "^[a-z0-9-]+\\.[a-z0-9-]+\\.turso\\.io$"
+    }
+  ],
+  "scopes": [
+    {
+      "resource": "memory.tracking",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Reminders are stored as `procedure`-typed memories with structured tags and `valid_from` due times. All six operations read and/or write this surface.",
+      "provider_scope": "turso-libsql-token (coarse; full DB access)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Talks to the configured Turso libSQL host. No other outbound destinations.",
+      "provider_scope": "*.turso.io"
+    }
+  ],
+  "actions": [
+    {
+      "name": "create",
+      "summary": "Create a reminder. Optionally recurring, optionally with an early-alert window, optionally tagged.",
+      "description": "Stores a `procedure`-typed memory with the reminder text, due time, and metadata (kind, recur_days, alert_before_days). `kind=nag` re-surfaces every boot until completed; `kind=notice` resolves after first surface. `recur_days` makes the reminder repeat \u2014 completing rolls `valid_from` forward by that many days rather than archiving. `alert_before_days` makes the reminder visible N days before due. Returns the memory id.",
+      "docs": {
+        "goal": "Create a reminder.",
+        "inputs_brief": "what (req), due (ISO or shorthand like '+3d'), kind (nag|notice), recur_days, alert_before_days, tags, priority",
+        "outputs_brief": "{memory_id}",
+        "errors_brief": "tracking_unconfigured, due_unparseable",
+        "example": "create what='check verify_patch tracking review' due='+7d' kind='notice'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "create"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "what"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "what": {
+            "type": "string",
+            "minLength": 1
+          },
+          "due": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "nag",
+              "notice"
+            ],
+            "default": "nag"
+          },
+          "recur_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "default": null
+          },
+          "alert_before_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "default": null
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5,
+            "default": 1
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "memory_id"
+          ],
+          "properties": {
+            "memory_id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "side_effects": "write",
+      "idempotent": false,
+      "scopes_used": [
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "done",
+      "summary": "Mark a reminder complete. Recurring reminders roll `valid_from` forward; one-shot reminders move to done.",
+      "description": "Looks up the reminder by full id or 8-char prefix. Recurring (`recur_days` set): updates the memory's `valid_from` by recur_days and keeps the `remind-active` tag. One-shot: drops the `remind-active` tag and adds `remind-done`. Idempotent in the one-shot case (re-completing is a no-op).",
+      "docs": {
+        "goal": "Complete a reminder.",
+        "inputs_brief": "reminder_id (full or 8-char prefix), note (optional)",
+        "outputs_brief": "{status: string, next_due: string|null}",
+        "errors_brief": "tracking_unconfigured, reminder_not_found",
+        "example": "done reminder_id='abc12345' note='shipped'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "done"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "reminder_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "reminder_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "next_due": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "side_effects": "write",
+      "idempotent": false,
+      "scopes_used": [
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "snooze",
+      "summary": "Push a reminder's due time forward.",
+      "description": "Updates the reminder's `valid_from` to the supplied ISO datetime or relative shorthand. Does not change the active/done status; the reminder simply re-becomes visible at the new time.",
+      "docs": {
+        "goal": "Defer a reminder.",
+        "inputs_brief": "reminder_id, until (ISO or shorthand)",
+        "outputs_brief": "{status, new_due}",
+        "errors_brief": "tracking_unconfigured, reminder_not_found, until_unparseable",
+        "example": "snooze reminder_id='abc12345' until='+1w'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "snooze"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "reminder_id",
+          "until"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "reminder_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "until": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "status",
+            "new_due"
+          ],
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "new_due": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "side_effects": "write",
+      "idempotent": true,
+      "scopes_used": [
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "due",
+      "summary": "List active reminders due within the supplied horizon. Read-only.",
+      "description": "Returns active (not-done) reminders whose `valid_from` is within `horizon_days` from now (or earlier \u2014 overdue reminders surface here too). Each result includes the full memory id, the reminder text, the due time, and the kind.",
+      "docs": {
+        "goal": "Show active reminders due soon (or overdue).",
+        "inputs_brief": "horizon_days (int, default 2)",
+        "outputs_brief": "{reminders: [{id, what, due, kind, age_days}]}",
+        "errors_brief": "tracking_unconfigured",
+        "example": "due horizon_days=7"
+      },
+      "invocation": {
+        "kind": "subcommand",
+        "argv_template": [
+          "due",
+          "--horizon-days",
+          "${input.horizon_days}"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "horizon_days": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 365,
+            "default": 2
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "reminders"
+          ],
+          "properties": {
+            "reminders": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "what": {
+                    "type": "string"
+                  },
+                  "due": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "age_days": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "side_effects": "read",
+      "idempotent": true,
+      "scopes_used": [
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "list",
+      "summary": "List all reminders. Read-only.",
+      "description": "Returns all reminders, optionally including done ones. Useful for full-state inspection.",
+      "docs": {
+        "goal": "Enumerate reminders.",
+        "inputs_brief": "include_done (bool, default false)",
+        "outputs_brief": "{reminders: [...]}",
+        "errors_brief": "tracking_unconfigured",
+        "example": "list include_done=true"
+      },
+      "invocation": {
+        "kind": "subcommand",
+        "argv_template": [
+          "list",
+          "--include-done",
+          "${input.include_done}"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "include_done": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "reminders"
+          ],
+          "properties": {
+            "reminders": {
+              "type": "array"
+            }
+          }
+        }
+      },
+      "side_effects": "read",
+      "idempotent": true,
+      "scopes_used": [
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "sweep",
+      "summary": "Archive long-stale reminders. Defaults to dry-run.",
+      "description": "Finds reminders whose `valid_from` is older than `archive_after_days`, or recurring reminders that have missed `missed_cycles` consecutive due times, and archives them (drops `remind-active`, adds `remind-archived`). `dry_run=true` (default) returns the would-archive list without acting.",
+      "docs": {
+        "goal": "Clean up stale reminders.",
+        "inputs_brief": "archive_after_days (int, default 21), missed_cycles (int, default 2), dry_run (bool, default true)",
+        "outputs_brief": "{archived: [...], count: int, dry_run: bool}",
+        "errors_brief": "tracking_unconfigured",
+        "example": "sweep dry_run=false"
+      },
+      "invocation": {
+        "kind": "subcommand",
+        "argv_template": [
+          "sweep",
+          "--archive-after-days",
+          "${input.archive_after_days}",
+          "--missed-cycles",
+          "${input.missed_cycles}",
+          "--dry-run",
+          "${input.dry_run}"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "archive_after_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365,
+            "default": 21
+          },
+          "missed_cycles": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "default": 2
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "archived",
+            "count",
+            "dry_run"
+          ],
+          "properties": {
+            "archived": {
+              "type": "array"
+            },
+            "count": {
+              "type": "integer"
+            },
+            "dry_run": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "side_effects": "write",
+      "idempotent": false,
+      "scopes_used": [
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "data_boundary": {
+    "reads": [
+      {
+        "resource": "memory.tracking",
+        "sensitivity": "medium"
+      }
+    ],
+    "transmits": [],
+    "persists": [
+      {
+        "where": "tool_local",
+        "fields": [
+          "what",
+          "due",
+          "kind",
+          "recur_days",
+          "alert_before_days",
+          "tags",
+          "priority"
+        ]
+      }
+    ],
+    "retention": {
+      "tool_local_days": 365
+    }
+  },
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils import remind\n# Smoke: import resolves and the public surface is callable.\nassert callable(remind.remind)\nassert callable(remind.remind_done)\nassert callable(remind.remind_due)\nprint('OK: remind public surface present')\n"
+    ],
+    "timeout_seconds": 5,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK: remind public surface present$"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/remind/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/remind.py"
+  }
+}

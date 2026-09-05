@@ -1,0 +1,295 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-task-policy",
+    "version": "0.1.0",
+    "name": "Muninn task_policy",
+    "summary": "Load the live policy for a perch autonomous task. Reads the {task}-command ops entry, recent preference memories, and the most recent real run, so task prompts route to fresh policy rather than hardcoded behavior.",
+    "description": "Three loads, all routed through the `remembering` library against Turso: (1) the {task_name}-command ops entry via config_get, (2) the N most recent memories tagged BOTH the task name AND 'preference' via recall(), (3) the most recent memory tagged with the task name and 'perch-time' but NOT 'skip' via a direct _exec SQL. Returns a dict combining the three plus a days_since_last_run helper. Pure read — no writes. The utility itself has no direct outbound HTTP; all I/O is mediated by the remembering library, which talks to Turso. See oaustegard/muninn-utilities#14 for the architectural background.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/task_policy.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "policy",
+      "perch",
+      "config",
+      "memory",
+      "muninn-internal"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.task_policy"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.task_policy"
+      ]
+    }
+  },
+  "env": [
+    {
+      "name": "TURSO_TOKEN",
+      "prompt": "Turso libSQL auth token for the Muninn memory database. The three reads (config_get, recall, _exec) all route through the remembering library, which uses these credentials. Required.",
+      "secret": true,
+      "required": true,
+      "obtain_url": "https://app.turso.tech/"
+    },
+    {
+      "name": "TURSO_URL",
+      "prompt": "Hostname of the Muninn memory libSQL database, e.g. 'mydb-username.turso.io'.",
+      "secret": false,
+      "required": true,
+      "validation_regex": "^[a-z0-9-]+\\.[a-z0-9-]+\\.turso\\.io$"
+    }
+  ],
+  "scopes": [
+    {
+      "resource": "memory.tracking",
+      "actions": [
+        "read"
+      ],
+      "rationale": "Reads the {task_name}-command ops entry, preference-tagged memories, and the most recent perch-time run for the named task. Never writes — the utility is a read-only policy resolver.",
+      "provider_scope": "turso-libsql-token (coarse; full DB access)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": [
+        "read"
+      ],
+      "rationale": "Talks to the configured Turso libSQL host via the remembering library. No other outbound destinations.",
+      "provider_scope": "*.turso.io"
+    }
+  ],
+  "actions": [
+    {
+      "name": "load",
+      "summary": "Load the live policy for a perch task. Returns instructions + preference memories + last run.",
+      "description": "Three reads in sequence (each isolated in a try/except so a single library miss does not abort the whole load): (1) config_get('{task_name}-command') → instructions string or null; (2) recall(tags=[task_name, 'preference'], tag_mode='all', n=n_prefs) → preference memory list; (3) _exec SQL over the memories table for the most recent perch-time row tagged with task_name and not skip. Each subquery's failure leaves the corresponding key at its null default. Read-only.",
+      "docs": {
+        "goal": "Resolve a perch task's live policy from Turso.",
+        "inputs_brief": "task_name (req: e.g. 'zeitgeist'|'fly'|'sleep'|'dispatch'), n_prefs (int, default 5)",
+        "outputs_brief": "{instructions: string|null, preferences: array, last_run: object|null}",
+        "errors_brief": "tracking_unconfigured (no Turso creds; partial-success path leaves all three keys at null defaults)",
+        "example": "load task_name='zeitgeist' n_prefs=5"
+      },
+      "invocation": {
+        "kind": "subcommand",
+        "argv_template": [
+          "load",
+          "--task-name",
+          "${input.task_name}",
+          "--n-prefs",
+          "${input.n_prefs}"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "task_name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "task_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "n_prefs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 5
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "instructions",
+            "preferences",
+            "last_run"
+          ],
+          "properties": {
+            "instructions": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "preferences": {
+              "type": "array"
+            },
+            "last_run": {
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "side_effects": "read",
+      "idempotent": true,
+      "scopes_used": [
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "days_since_last_run",
+      "summary": "Return days elapsed since policy.last_run, or null if no prior run is on record. Pure compute.",
+      "description": "Parses last_run.valid_from as ISO datetime (UTC normalized via 'Z' → '+00:00') and returns the float-day delta from now. Returns null when last_run is null or its valid_from is unparseable.",
+      "docs": {
+        "goal": "Compute the age of the most recent prior run.",
+        "inputs_brief": "policy (req: dict from load())",
+        "outputs_brief": "{days: number|null}",
+        "errors_brief": "(none — pure compute, returns null on parse miss)",
+        "example": "days_since_last_run policy={...}"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "days-since-last-run"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "policy"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "policy": {
+            "type": "object"
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "days"
+          ],
+          "properties": {
+            "days": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "side_effects": "none",
+      "idempotent": true,
+      "scopes_used": [],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "format_summary",
+      "summary": "Render a human-readable one-line summary of a loaded policy, for logging. Pure compute.",
+      "description": "Produces 'task-command ops entry loaded (N chars); M recent preference memories; last run K.Kd ago' (or the corresponding null-branch phrases). Used by perch task prompts when emitting a header line about what policy was loaded.",
+      "docs": {
+        "goal": "Render the policy as a one-line log message.",
+        "inputs_brief": "policy (req: dict from load()), task_name (req)",
+        "outputs_brief": "{summary: string}",
+        "errors_brief": "(none — pure compute)",
+        "example": "format_summary policy={...} task_name='zeitgeist'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "format-summary"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "policy",
+          "task_name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "policy": {
+            "type": "object"
+          },
+          "task_name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "summary"
+          ],
+          "properties": {
+            "summary": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "side_effects": "none",
+      "idempotent": true,
+      "scopes_used": [],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "data_boundary": {
+    "reads": [
+      {
+        "resource": "memory.tracking",
+        "sensitivity": "medium"
+      }
+    ],
+    "transmits": [],
+    "persists": []
+  },
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.task_policy import load, days_since_last_run, format_summary\nassert callable(load)\nassert callable(days_since_last_run)\nassert callable(format_summary)\nprint('OK: task_policy public surface present')\n"
+    ],
+    "timeout_seconds": 5,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK: task_policy public surface present$"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/task-policy/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/task_policy.py"
+  }
+}
