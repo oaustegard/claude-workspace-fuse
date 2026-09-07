@@ -29,6 +29,8 @@ if [ ! -f "$recover" ]; then
 fi
 
 echo "[muninn-boot] degraded boot detected — running recovery"
-echo "[muninn-boot] (if this reports 'spokes NOT in scope', call add_repo for"
-echo "[muninn-boot]  oaustegard/{claude-skills,muninn-utilities,claude-container-layers} first)"
+echo "[muninn-boot] (if this reports 'spokes NOT in scope', call add_repo with"
+echo "[muninn-boot]  access=\"push\" for oaustegard/{claude-skills,muninn-utilities,"
+echo "[muninn-boot]  claude-container-layers} first — a bare add_repo on a public repo"
+echo "[muninn-boot]  attaches nothing and leaves codeload at 403)"
 exec bash "$recover"

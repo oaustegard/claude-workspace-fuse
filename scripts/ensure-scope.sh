@@ -71,11 +71,14 @@ missing because the spoke repos were out of the session's GitHub scope at
 SessionStart (a shell hook cannot call add_repo; you can). Before doing
 anything else this turn, recover:
 
-1. Call add_repo (mcp__Claude_Code_Remote__add_repo) for each of:
+1. Call add_repo (mcp__Claude_Code_Remote__add_repo) with access="push" for:
      - oaustegard/claude-skills
      - oaustegard/muninn-utilities
      - oaustegard/claude-container-layers
-   add_repo alone opens the codeload/tarball channel, which is all boot needs.
+   access="push" is REQUIRED as of 2026-09-07: a bare add_repo on a public repo
+   returns status "read_available" and attaches NOTHING (the git proxy already
+   serves anonymous clone/fetch), leaving codeload and the REST API at 403 and
+   boot still degraded. access="push" returns status "appended" and opens both.
    Do NOT `git clone` them and do NOT call register_repo_root — registering
    inlines each spoke's CLAUDE.md/skills into context and they cross-talk with
    this hub's instructions. Scope without inlining is the whole point.

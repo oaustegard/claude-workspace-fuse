@@ -25,12 +25,17 @@ every `codeload` fetch 403s and the `SessionStart` hook boots degraded: no
 skills, no `remembering`, no `/mnt/muninn`, no identity. The fix has one
 model-only step the shell cannot perform, then a script:
 
-1. **Call `add_repo`** (`mcp__Claude_Code_Remote__add_repo`) for each of:
+1. **Call `add_repo`** (`mcp__Claude_Code_Remote__add_repo`) with
+   `access: "push"` for each of:
    - `oaustegard/claude-skills`
    - `oaustegard/muninn-utilities`
    - `oaustegard/claude-container-layers`
 
-   `add_repo` alone opens the codeload channel — all boot needs. Do **not**
+   **`access: "push"` is required** (2026-09-07). A bare `add_repo` on a public
+   repo short-circuits to `status: "read_available"` and attaches nothing — the
+   git proxy already serves anonymous clone/fetch, but codeload and the REST
+   API still 403, so boot stays degraded. `access: "push"` yields
+   `status: "appended"` and opens both channels. Do **not**
    `git clone` them and do **not** call `register_repo_root`: registering
    inlines each spoke's `CLAUDE.md`/skills into context, where they cross-talk
    with this hub's instructions. Scope without inlining is the point.
