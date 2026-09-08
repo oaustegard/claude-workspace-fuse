@@ -165,6 +165,29 @@ hub's. The recovery deliberately skips it: scope without inlining. Empirically
 confirmed — three `add_repo` calls with no `register_repo_root` gave working
 codeload with zero spoke `CLAUDE.md` in context.
 
+**`add_repo` now needs `access: "push"` on the public spokes (2026-09-07).**
+A bare `add_repo` on a *public* repo short-circuits: it returns
+`status: "read_available"` with the message "Nothing was attached to the
+session", because the git proxy already serves anonymous `git clone`/`fetch`
+of public GitHub repos. Anonymous **git** is not anonymous **codeload** — the
+tarball host still 403s, the REST API still 403s, and boot stays degraded. The
+`muninn-boot` recovery run right after such a call reported "claude-skills
+still 403 — spokes are NOT in scope yet."
+
+Passing `access: "push"` runs the real attachment (`status: "appended"`) and
+codeload/REST both open. So the recovery sequence is now:
+
+```
+add_repo(oaustegard/claude-skills,           access="push")
+add_repo(oaustegard/muninn-utilities,        access="push")
+add_repo(oaustegard/claude-container-layers, access="push")   # attaches either way
+Skill("muninn-boot")
+```
+
+Still no `register_repo_root` — `access: "push"` widens scope without inlining
+any spoke's `CLAUDE.md`. Confirmed 2026-09-07: after the push-scope attach,
+boot ran clean and mounted 3155 memories.
+
 **On the durable-fix landscape (docs-checked 2026-07-07 against
 [the CCotw docs](https://code.claude.com/docs/en/claude-code-on-the-web) +
 [quickstart](https://code.claude.com/docs/en/web-quickstart)).** A CCotw
@@ -340,20 +363,56 @@ oaustegard repo:** `add_repo` + MCP is the channel. There is no `gh`
 fallback because there is no `gh` path. Don't treat skills as read-only
 just because they were fetched at boot time.
 
-### `gh auth status` lies here — trust curl
+### Every GitHub lane is proxy-injected — `$GH_TOKEN` is not what authenticates
 
-The agent proxy makes `gh auth status` report `The token in GH_TOKEN is
-invalid` even when the token is fully valid, because `gh`'s status probe
-hits an endpoint the proxy 400s. To verify PAT validity, use curl:
+As of 2026-09-07 the agent proxy is configured `api.github.com — Allow + inject
+Github`, and `gitConfigInjection` is on. The proxy **replaces** the credential
+on every GitHub request, whatever you present. Measured this session:
 
-```bash
-curl -sS -H "Authorization: token $GH_TOKEN" https://api.github.com/user | jq .login
-```
+| Probe | Result |
+|---|---|
+| `curl https://api.github.com/user` — **no** `Authorization` header | `200`, `login: oaustegard` |
+| same, with `-H "Authorization: token $GH_TOKEN"` | `200` |
+| same, with `-H "Authorization: token ghp_thisIsDefinitelyNotAValid..."` | **`200`** |
+| `git push` with a credential helper feeding a garbage password | **succeeded**, branch created |
+| `gh api user --jq .login` | `oaustegard` |
+| `gh auth status` | still reports "The token in GH_TOKEN is invalid" |
 
-If it echoes your login, the token works. Diagnosed 2026-07-06: the
-"$GH_TOKEN PAT is currently invalid" claim in [PR #29](https://github.com/oaustegard/claude-workspace-fuse/pull/29)'s
-follow-ups (and my restatement of it) was `gh` misreading the proxy, not
-the token being bad. Verified token still valid at the time.
+The garbage-token rows are the point: a deliberately invalid credential gets a
+`200`. So the old advice in this section — *"`gh` lies, verify the PAT with
+`curl -H "Authorization: token $GH_TOKEN"`"* — **is now wrong**. That curl can
+no longer distinguish a live PAT from a dead one, because the proxy strips the
+header before the request leaves the container. It was a valid test on
+2026-07-06; it is a tautology now.
+
+**Consequence: there is no in-session probe for `$GH_TOKEN`'s validity.** Every
+GitHub path available here — REST via curl, git over HTTPS, `gh api`, the
+`mcp__github__*` tools — is served by the proxy's own credential. `$GH_TOKEN`
+is present in the environment (93 chars, real shape, not the `proxy-injected`
+placeholder of memory `5c4396c9`) but nothing observable depends on it. Test it
+from outside the container, or not at all. `gh auth status` remains the one
+honest signal that *something* about the env var is off, and it is honest by
+accident — it is still just misreading the proxy.
+
+**What the injected credential can and cannot do:**
+
+- Scope is the session's **attached** repo list, not the account. A public repo
+  that is merely `read_available` 403s on both REST and codeload. `add_repo`
+  with `access: "push"` is what moves a repo into the injected credential's
+  scope.
+- `GET /repos/:o/:r` reports `permissions: {push: false, pull: false, ...}` even
+  for repos this session pushes to successfully. The permissions block reflects
+  the App installation, not the effective lane — **do not** use it to predict
+  whether a write will work.
+- Raw `curl` writes to `api.github.com` are refused by the proxy itself:
+  `{"message": "Write access to this GitHub API path is not permitted through
+  this proxy."}`. Writes go through the `mcp__github__*` tools, which take a
+  different channel. This is the mechanical reason MCP is the documented
+  default for GitHub operations, not a style preference.
+- **Branch deletion is blocked in both lanes.** `DELETE
+  /repos/.../git/refs/heads/X` → `403` from the proxy; `git push origin :X` →
+  `RPC failed; HTTP 403`. Branches can be created and updated but not removed
+  from inside a session. Clean up stale branches from the GitHub UI.
 
 ### NEVER embed `$GH_TOKEN` in a URL
 
@@ -362,20 +421,22 @@ or any variant that puts the token into a URL — git echoes the full URL to
 stdout (visible in my transcript) and `-u` persists it into `.git/config`.
 Every time I've done this the user has had to rotate the token. Stop doing it.
 
-**Instead**, when `gh` CLI is unavailable and you must push over HTTPS, use
-the one-shot credential helper — the token stays in the process environment
-and never hits stdout or disk:
+**Instead**, just `git push origin <branch>`. Since the proxy gained
+`gitConfigInjection` (see the section above), a plain push authenticates on its
+own — a garbage credential helper pushes just as successfully, which is the
+proof that the helper is no longer carrying the auth. The one-shot helper
+recipe this section used to prescribe:
 
 ```bash
+# NO LONGER NEEDED — the proxy injects. Kept only as the safe shape to fall
+# back to if injection is ever turned off for this environment.
 git -c 'credential.helper=!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f' \
     push origin <branch>
 ```
 
-Verified in this container against `github.com/oaustegard/*`.  An
-`http.extraHeader="Authorization: Bearer $GH_TOKEN"` override by itself
-does *not* work here — git still prompts for a username and the push
-fails — so stick to the credential helper.  After pushing, confirm no
-leak with:
+The rules below still stand regardless — they are about never *writing* the
+token into a command string, and that hazard is unchanged by who ends up doing
+the authenticating. After pushing, confirm no leak with:
 
 ```bash
 git config --get-regexp 'remote\.origin\..*'   # URL should have no token
