@@ -1,0 +1,313 @@
+{
+  "manifest_version": "0.3",
+  "tool": {
+    "id": "muninn-perch-triage",
+    "version": "0.1.0",
+    "name": "Muninn perch_triage",
+    "summary": "Triage open Perch flight-log discussions by reaction signal. Groups them into action buckets (auto-close, discuss, file-issue, hold, correct, nag). Optional auto-close path executes the THUMBS_UP/LAUGH bucket.",
+    "description": "Two operating modes. **Recommendation-only** (auto_close=false): reads open Flight Log discussions on oaustegard/claude-skills, classifies each by primary reaction (priority order: ROCKET > HEART > CONFUSED > EYES > HOORAY > THUMBS_DOWN > THUMBS_UP > LAUGH), groups them into action buckets, and returns the report. Pure read; no GitHub writes, no memory writes. **Auto-close** (auto_close=true, default): for THUMBS_UP / LAUGH reactions only, additionally writes a `world`-typed memory summarising the log, then closes the GH discussion with a comment referencing the memory id. Issue #5 calls this out as the test for a tool that produces a recommendation rather than a change \u2014 the recommendation-only mode is read-only with no writes; the auto-close mode is write-and-destructive on a narrow reaction set.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/perch_triage.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "github",
+      "discussions",
+      "triage",
+      "flight-logs",
+      "reactions"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "git",
+      "url": "https://github.com/oaustegard/muninn-utilities",
+      "ref": "71f39312f46be77967545ef404bfcb88698bf986",
+      "subpath": "muninn_utils"
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.perch_triage"
+      ]
+    }
+  },
+  "env": [
+    {
+      "name": "GH_TOKEN",
+      "prompt": "GitHub personal access token. Reads discussion content and reactions; writes only when auto_close=true (closes the discussion with a comment). Same coarse credential as perch_publish, issue_close, blog_publish, verify_patch. Falls back to GITHUB_TOKEN.",
+      "secret": true,
+      "required": true,
+      "validation_regex": "^(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]+)$",
+      "obtain_url": "https://github.com/settings/personal-access-tokens"
+    },
+    {
+      "name": "GITHUB_TOKEN",
+      "prompt": "Optional fallback for GH_TOKEN. The source reads `os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')`.",
+      "secret": true,
+      "required": false,
+      "validation_regex": "^(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]+)$",
+      "obtain_url": "https://github.com/settings/personal-access-tokens"
+    },
+    {
+      "name": "TURSO_TOKEN",
+      "prompt": "Turso libSQL auth token for the Muninn memory database. Required only if you intend to use auto_close=true; the recommendation-only path does not write memories. Optional.",
+      "secret": true,
+      "required": false,
+      "obtain_url": "https://app.turso.tech/",
+      "indirect": true
+    },
+    {
+      "name": "TURSO_URL",
+      "prompt": "Hostname of the Muninn memory libSQL database. Same conditional rule as TURSO_TOKEN.",
+      "secret": false,
+      "required": false,
+      "validation_regex": "^[a-z0-9-]+\\.[a-z0-9-]+\\.turso\\.io$",
+      "indirect": true
+    }
+  ],
+  "scopes": [
+    {
+      "resource": "github.discussions",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Reads open Flight Log discussions and their reactions. When auto_close=true and a discussion has a THUMBS_UP/LAUGH reaction, writes a closing comment and toggles state to CLOSED.",
+      "provider_scope": "github-pat (coarse; full account write access)"
+    },
+    {
+      "resource": "memory.tracking",
+      "actions": [
+        "write"
+      ],
+      "rationale": "When auto_close=true, writes a `world`-typed memory summarising each auto-closed flight log so the closure remains traceable. Read-only when auto_close=false.",
+      "provider_scope": "turso-libsql-token (coarse; full DB access)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Talks to api.github.com (GraphQL for discussion read, REST for close-with-comment) and to the configured Turso libSQL host when auto-closing.",
+      "provider_scope": "api.github.com, *.turso.io"
+    }
+  ],
+  "actions": [
+    {
+      "name": "triage",
+      "summary": "Read open Flight Log discussions and group them by reaction-driven action. Optionally auto-close the THUMBS_UP / LAUGH bucket.",
+      "description": "Synchronously: fetches open discussions in the Flight Logs category, classifies each by primary reaction, and returns the result grouped into action buckets (auto_closed, discuss_priority, file_issues, hold, correction, close_not_useful, close_celebrate, nag, unreacted_recent). When auto_close=true, the auto_closed bucket is realised \u2014 each log gets a memory write and a GH close-with-comment; the others are recommendations the caller must execute manually. The unreacted_recent / nag split surfaces logs older than nag_days that have not been reacted to yet.",
+      "docs": {
+        "goal": "Triage Perch flight logs by reaction; optionally auto-close the obvious-good bucket.",
+        "inputs_brief": "auto_close (bool, default true), nag_days (int, default 3), limit (int, default 25)",
+        "outputs_brief": "{auto_closed, discuss_priority, file_issues, hold, correction, close_not_useful, close_celebrate, nag, unreacted_recent} \u2014 each an array of log dicts",
+        "errors_brief": "auth_invalid, category_not_found, network_unreachable, tracking_unconfigured (when auto_close=true and TURSO_* not set)",
+        "example": "triage auto_close=false nag_days=3"
+      },
+      "invocation": {
+        "kind": "subcommand",
+        "argv_template": [
+          "triage",
+          "--auto-close",
+          "${input.auto_close}",
+          "--nag-days",
+          "${input.nag_days}",
+          "--limit",
+          "${input.limit}"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "auto_close": {
+            "type": "boolean",
+            "default": true
+          },
+          "nag_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "default": 3
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 25
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "auto_closed",
+            "discuss_priority",
+            "file_issues",
+            "hold",
+            "correction",
+            "close_not_useful",
+            "close_celebrate",
+            "nag",
+            "unreacted_recent"
+          ],
+          "properties": {
+            "auto_closed": {
+              "type": "array"
+            },
+            "discuss_priority": {
+              "type": "array"
+            },
+            "file_issues": {
+              "type": "array"
+            },
+            "hold": {
+              "type": "array"
+            },
+            "correction": {
+              "type": "array"
+            },
+            "close_not_useful": {
+              "type": "array"
+            },
+            "close_celebrate": {
+              "type": "array"
+            },
+            "nag": {
+              "type": "array"
+            },
+            "unreacted_recent": {
+              "type": "array"
+            }
+          }
+        }
+      },
+      "side_effects": "destructive",
+      "idempotent": false,
+      "scopes_used": [
+        "github.discussions",
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "triage_report",
+      "summary": "Format a triage result as a concise human-readable report. Read-only.",
+      "description": "Pure formatting wrapper around `triage`. If no result is supplied, calls `triage` with default args and formats the result. Returns a markdown-flavored multi-line string organised by action bucket. Read-only when called with a precomputed result; calls through to `triage` (with its destructive side-effects) when result=null.",
+      "docs": {
+        "goal": "Render a triage result as text.",
+        "inputs_brief": "result (optional triage output dict)",
+        "outputs_brief": "{report: string}",
+        "errors_brief": "(inherits from triage when result=null)",
+        "example": "triage_report"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "triage-report"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "result": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "default": null
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "report"
+          ],
+          "properties": {
+            "report": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "side_effects": "read",
+      "idempotent": true,
+      "scopes_used": [
+        "github.discussions"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "data_boundary": {
+    "reads": [
+      {
+        "resource": "github.discussions",
+        "sensitivity": "low"
+      }
+    ],
+    "transmits": [
+      {
+        "to": "api.github.com",
+        "fields": [
+          "env.GH_TOKEN"
+        ],
+        "purpose": "discussion read + auto-close write",
+        "third_party_retention": "none-per-vendor-tos",
+        "vendor_tos_url": "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement"
+      }
+    ],
+    "persists": [
+      {
+        "where": "tool_local",
+        "fields": [
+          "log_summary",
+          "log_number"
+        ]
+      }
+    ],
+    "retention": {
+      "tool_local_days": 365
+    }
+  },
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.perch_triage import fetch_open_logs\nlogs = fetch_open_logs(limit=1)\nassert isinstance(logs, list)\nprint('OK: fetched', len(logs), 'logs')\n"
+    ],
+    "timeout_seconds": 15,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK: fetched [0-9]+ logs$"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/perch-triage/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "external"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/perch_triage.py"
+  }
+}

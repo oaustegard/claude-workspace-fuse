@@ -1,0 +1,66 @@
+# Runtime file manifest for a raw.githubusercontent sideload.
+# codeload/api.github.com are intercepted by Anthropic's session egress
+# proxy in some session types (Cowork, scheduled runners); raw is not.
+# raw has no directory listing, and an import-graph walk misses data
+# files (defaults/*.json, tasks/*.md), so this list is the manifest.
+# Regenerate: python3 remembering/scripts/gen_manifest.py
+# Excludes tests/.
+muninn_utils/__init__.py
+muninn_utils/blog_publish.py
+muninn_utils/boot_ledger.py
+muninn_utils/bsky_card.py
+muninn_utils/bsky_limit.py
+muninn_utils/bsky_moderation.py
+muninn_utils/capability_model.py
+muninn_utils/correction_gate.py
+muninn_utils/correction_gate_benchmark.json
+muninn_utils/flowing.py
+muninn_utils/gemini_mini_muninn.py
+muninn_utils/gh_proxy.py
+muninn_utils/gh_status.py
+muninn_utils/github_rw.py
+muninn_utils/issue_close.py
+muninn_utils/memory_tfidf.py
+muninn_utils/mini_muninn.py
+muninn_utils/news_watch.py
+muninn_utils/perch_publish.py
+muninn_utils/perch_triage.py
+muninn_utils/recall_sufficiency.py
+muninn_utils/remind.py
+muninn_utils/ruff_gate.py
+muninn_utils/satisfaction_skew.py
+muninn_utils/search_reindex.py
+muninn_utils/skill_lint.py
+muninn_utils/strava.py
+muninn_utils/survey.py
+muninn_utils/task_policy.py
+muninn_utils/use_when.json
+muninn_utils/validate_fields.py
+muninn_utils/verify_patch.py
+muninn_utils/zeitgeist_delta.py
+remembering/SKILL.md
+remembering/scripts/__init__.py
+remembering/scripts/aliases.py
+remembering/scripts/audit.py
+remembering/scripts/boot.py
+remembering/scripts/bootstrap.py
+remembering/scripts/capabilities.py
+remembering/scripts/config.py
+remembering/scripts/defaults/capability_map.json
+remembering/scripts/defaults/ops.json
+remembering/scripts/defaults/profile.json
+remembering/scripts/gen_manifest.py
+remembering/scripts/hints.py
+remembering/scripts/memory.py
+remembering/scripts/provenance.py
+remembering/scripts/result.py
+remembering/scripts/spokes.py
+remembering/scripts/state.py
+remembering/scripts/task.py
+remembering/scripts/tasks/anthropic_news.md
+remembering/scripts/tasks/dispatch.md
+remembering/scripts/tasks/fly.md
+remembering/scripts/tasks/sleep.md
+remembering/scripts/tasks/zeitgeist.md
+remembering/scripts/turso.py
+remembering/scripts/utilities.py

@@ -1,0 +1,63 @@
+{
+  "manifest_version": "0.3",
+  "tool": {
+    "id": "muninn-hypothetical-classifier",
+    "version": "0.1.0",
+    "name": "Muninn hypothetical_classifier",
+    "summary": "Classify items into a closed label vocabulary too large to ship in a prompt: a cheap LLM invents a free-form label, an embedder snaps the invention onto the nearest legal one.",
+    "description": "Implements Doug Turnbull's hallucinate-and-snap pattern (softwaredoug.com, 2026-08-10). The model never receives the label set; it is asked to invent a plausible classification, and a char-ngram TF-IDF or MiniLM embedder resolves that invention into the real vocabulary. Exposes Vocabulary (a label set plus its cached embedding matrix, with .snap()), hallucinate() (batched free-form generation with index-keyed parsing so a dropped item degrades to empty rather than to a neighbour's label), and classify() (the whole pattern, with blend and direct_union modes). Defaults are measured rather than chosen: batch=40 is free, blend adds 1.1pp on short items, and the tfidf backend needs no model download. Ships with the boundary it was measured against — on WANDS the pattern beats every no-LLM baseline but loses 20 points to simply shipping the vocabulary, and on long items it scores half the direct snap and is useful only as a union with it.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/hypothetical_classifier.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": ["classification", "embeddings", "closed-vocabulary", "query-understanding", "read-only"]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "git",
+      "url": "https://github.com/oaustegard/muninn-utilities",
+      "subpath": "muninn_utils"
+    },
+    "entrypoint": {
+      "command": ["python", "-m", "muninn_utils.hypothetical_classifier"]
+    }
+  },
+  "env": [
+    {
+      "name": "CF_ACCOUNT_ID",
+      "prompt": "Cloudflare account id used to route Gemini calls through the AI Gateway. Not a secret on its own.",
+      "secret": false,
+      "required": true,
+      "indirect": true
+    },
+    {
+      "name": "CF_GATEWAY_ID",
+      "prompt": "Cloudflare AI Gateway id. Not a secret on its own.",
+      "secret": false,
+      "required": true,
+      "indirect": true
+    },
+    {
+      "name": "CF_API_TOKEN",
+      "prompt": "Cloudflare API token with AI Gateway permission. The Google API key is held in the gateway via BYOK, so no Google credential is needed here. Treat as a secret.",
+      "secret": true,
+      "required": true,
+      "obtain_url": "https://dash.cloudflare.com/profile/api-tokens",
+      "indirect": true
+    }
+  ],
+  "scopes": [
+    {
+      "resource": "gemini.generate",
+      "actions": ["invoke"],
+      "rationale": "Sends each batch of items to gemini-3.5-flash-lite to invent free-form labels. The label vocabulary is never transmitted; only the items being classified are."
+    }
+  ],
+  "limits": {
+    "network": ["gateway.ai.cloudflare.com", "huggingface.co"],
+    "notes": "huggingface.co is reached only when backend='minilm' downloads all-MiniLM-L6-v2 (~90 MB, cached thereafter). The default tfidf backend makes no network call of its own."
+  }
+}
