@@ -1,0 +1,190 @@
+{
+  "manifest_version": "0.3",
+  "tool": {
+    "id": "muninn-memory-tfidf",
+    "version": "0.1.0",
+    "name": "Muninn memory_tfidf",
+    "summary": "TF-IDF index over Muninn's memory summaries. Read-only similarity search, near-duplicate detection, clustering, and outlier identification across the memory store.",
+    "description": "Loads all memory summaries from Turso once, builds a sklearn TfidfVectorizer + cosine-similarity matrix, and exposes four read-only queries: duplicates() (pairs above a similarity threshold), similar(id) (top-N for a given memory), clusters() (connected components above threshold), outliers() (memories with low max-similarity to anything else). Build is in-memory and ephemeral; nothing persists between calls in the tool's own storage. Authored as the deliberate **minimum-honest-manifest** consumer test for install-manifest-spec v0.3 \u2014 every required field is present, nothing optional is added past what the tool actually does.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/memory_tfidf.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "tf-idf",
+      "similarity",
+      "clustering",
+      "memory",
+      "read-only"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "git",
+      "url": "https://github.com/oaustegard/muninn-utilities",
+      "ref": "71f39312f46be77967545ef404bfcb88698bf986",
+      "subpath": "muninn_utils"
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.memory_tfidf"
+      ]
+    }
+  },
+  "env": [
+    {
+      "name": "TURSO_TOKEN",
+      "prompt": "Turso libSQL auth token for the memory database. Read-only access is sufficient \u2014 this tool never writes. The token is a coarse credential; treat as a secret.",
+      "secret": true,
+      "required": true,
+      "obtain_url": "https://app.turso.tech/",
+      "indirect": true
+    },
+    {
+      "name": "TURSO_URL",
+      "prompt": "Hostname of the Turso libSQL database, e.g. 'mydb-username.turso.io'. The tool reads memories via the libSQL HTTP pipeline endpoint.",
+      "secret": false,
+      "required": true,
+      "validation_regex": "^[a-z0-9-]+\\.[a-z0-9-]+\\.turso\\.io$",
+      "indirect": true
+    }
+  ],
+  "scopes": [
+    {
+      "resource": "memory.tracking",
+      "actions": [
+        "read"
+      ],
+      "rationale": "Reads all memory summaries (id, summary, tags, type) from the Turso DB to build the index. Never writes.",
+      "provider_scope": "turso-libsql-token (coarse; full DB access)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": [
+        "read"
+      ],
+      "rationale": "Talks to the configured Turso libSQL host for the initial fetch. No other outbound destinations.",
+      "provider_scope": "*.turso.io"
+    }
+  ],
+  "actions": [
+    {
+      "name": "build_and_query",
+      "summary": "Fetch all memory summaries, build the TF-IDF index, and return a query result (duplicates / similar / clusters / outliers).",
+      "description": "Single combined action because the build is the expensive step (one SELECT over the full memory table plus the TfidfVectorizer fit). All four query modes share the same matrix; the action takes a `mode` discriminant and the parameters relevant to that mode. The matrix is not cached between invocations \u2014 each call rebuilds. Read-only at every layer.",
+      "docs": {
+        "goal": "Run a TF-IDF similarity query over the memory store.",
+        "inputs_brief": "mode (duplicates|similar|clusters|outliers), threshold (float), id (for similar), n (for similar/outliers)",
+        "outputs_brief": "{mode: string, results: array, build_time_ms: number, total_memories: int}",
+        "errors_brief": "tracking_unconfigured (TURSO_* not set), tracking_unreachable, mode_unknown, id_not_found",
+        "example": "build_and_query mode=duplicates threshold=0.8"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "build-and-query"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "duplicates",
+              "similar",
+              "clusters",
+              "outliers"
+            ]
+          },
+          "threshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.8
+          },
+          "id": {
+            "type": "string",
+            "description": "Memory id; required when mode=similar."
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 5
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "mode",
+            "results",
+            "build_time_ms",
+            "total_memories"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string"
+            },
+            "results": {
+              "type": "array"
+            },
+            "build_time_ms": {
+              "type": "number"
+            },
+            "total_memories": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "side_effects": "read",
+      "idempotent": true,
+      "scopes_used": [
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.memory_tfidf import MemoryIndex\nidx = MemoryIndex()\nidx.build(memories=[{'id': 'a', 'summary': 'apple banana', 'tags': []}, {'id': 'b', 'summary': 'banana cherry', 'tags': []}])\nassert len(idx.ids) == 2\nprint('OK')\n"
+    ],
+    "timeout_seconds": 10,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK$"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/memory-tfidf/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/memory_tfidf.py"
+  }
+}

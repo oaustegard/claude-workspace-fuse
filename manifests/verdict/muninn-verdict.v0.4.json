@@ -1,0 +1,207 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-verdict",
+    "version": "0.1.0",
+    "name": "Muninn verdict",
+    "summary": "Persist a challenge() verdict together with the fingerprint that dates it — judge, profile, and a content hash of the criterion prose — so a rewritten rubric turns staleness into a query instead of a guess.",
+    "description": "challenge() is Muninn's semantic operator: a model reads an artifact against a named criterion and returns a verdict. It writes nothing, so every verdict dies with its session. Storing the verdict alone would not be enough either, because the three things that make it meaningful all move underneath it — the judge (gemini/claude/self, resolved from whatever credentials were present), the criterion (a profile's system prompt, which is editable prose), and the voice signature for prose-register (separate prose, edited more often than the profile). A judgement made under criterion-v1 is not a judgement under criterion-v2 and nothing in the stored text says which. verdict stores the result with a sha256 prefix of the exact criterion text that produced it, so stale_verdicts('prose-register') returns the verdicts that predate the current signature. Existing semantic caches key reuse on input similarity, which cannot see that the rubric moved. There is deliberately no schema column: measured 2026-09-10 the corpus holds tens of judged verdicts, and the module docstring carries the count at which a partial index or a real column becomes the right call.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/verdict.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "memory",
+      "provenance",
+      "lineage",
+      "semantic-operator",
+      "challenge",
+      "cache-invalidation"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.verdict"
+      }
+    },
+    "entrypoint": {
+      "command": ["python", "-m", "muninn_utils.verdict"]
+    }
+  },
+  "scopes": [
+    {
+      "resource": "compute.local",
+      "actions": ["read"],
+      "rationale": "Hashing criterion prose and comparing tag values are local pure computation. Callers may inject both the criterion root and the memory rows, in which case the module touches nothing outside the paths it is handed."
+    },
+    {
+      "resource": "filesystem.local",
+      "actions": ["read"],
+      "sensitivity": "low",
+      "rationale": "Reads one markdown file per profile from the challenging skill's references directory (default /mnt/skills/user/challenging/references, overridable via CHALLENGING_REFERENCES). Read-only, and only the named profile's file."
+    },
+    {
+      "resource": "turso.libsql",
+      "actions": ["read", "write"],
+      "sensitivity": "low",
+      "rationale": "store_verdict() writes one analysis memory per verdict through remembering.remember. stale_verdicts() and count_verdicts() read verdict-tagged memories. Both accept injection to run with no store access at all."
+    }
+  ],
+  "actions": [
+    {
+      "name": "fingerprint",
+      "summary": "Compute the {judge, profile, crit_sha} triple that dates a verdict.",
+      "description": "Reads the profile's criterion prose, appends the voice signature for voice profiles, and returns a sha256 prefix over the pair. Refuses a voice profile with no signature and a non-voice profile with one, because either mismatch would assert a provenance that did not happen. An unreadable criterion raises CriterionUnavailable rather than degrading to a placeholder hash, which would compare unequal to every stored hash and report the whole corpus stale.",
+      "docs": {
+        "goal": "Make a verdict's criterion identifiable after the criterion changes.",
+        "inputs_brief": "profile; optional voice (required for prose-register); judge label; optional criterion root",
+        "outputs_brief": "{judge, profile, crit_sha}",
+        "errors_brief": "CriterionUnavailable when the profile prose cannot be read; ValueError on a voice/profile mismatch.",
+        "example": "fingerprint('prose-register', voice=signature, judge='gemini')"
+      },
+      "invocation": {"kind": "in-process", "argv_template": ["fingerprint"]},
+      "input": {
+        "type": "object",
+        "required": ["profile"],
+        "additionalProperties": true,
+        "properties": {
+          "profile": {"type": "string"},
+          "voice": {"type": "string", "default": ""},
+          "judge": {"type": "string", "default": "unknown"}
+        }
+      },
+      "output": {
+        "format": "object",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "judge": {"type": "string"},
+            "profile": {"type": "string"},
+            "crit_sha": {"type": "string"}
+          }
+        }
+      },
+      "side_effects": "None. Reads one file.",
+      "idempotent": true,
+      "scopes_used": ["compute.local", "filesystem.local"],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "store_verdict",
+      "summary": "Write one challenge() result to memory with its fingerprint in the tags.",
+      "description": "Renders the verdict, summary and findings into an analysis memory tagged verdict, judge:<judge>, criterion:<profile> and crit-sha:<hash>. refs carries evidence edges as usual; the fingerprint describes the judging, not the evidence. The tag vocabulary is produced by verdict_tags() so the writer and the staleness query cannot drift apart.",
+      "docs": {
+        "goal": "Turn a one-time LLM call into reusable derived data.",
+        "inputs_brief": "result dict from challenge(); subject; judge/profile/crit_sha from fingerprint(); optional refs, tags, priority",
+        "outputs_brief": "memory id (str)",
+        "errors_brief": "Turso write errors propagate from remembering.remember.",
+        "example": "store_verdict(result, subject='blog/draft.html', **fingerprint('prose', judge='gemini'))"
+      },
+      "invocation": {"kind": "in-process", "argv_template": ["store_verdict"]},
+      "input": {
+        "type": "object",
+        "required": ["result", "subject", "judge", "profile", "crit_sha"],
+        "additionalProperties": true,
+        "properties": {
+          "result": {"type": "object"},
+          "subject": {"type": "string"},
+          "judge": {"type": "string"},
+          "profile": {"type": "string"},
+          "crit_sha": {"type": "string"},
+          "refs": {"type": ["array", "null"]},
+          "priority": {"type": "integer", "default": 0}
+        }
+      },
+      "output": {"format": "string", "schema": {"type": "string"}},
+      "side_effects": "Writes one memory row. Never supersedes or mutates existing rows.",
+      "idempotent": false,
+      "scopes_used": ["compute.local", "turso.libsql"],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "stale_verdicts",
+      "summary": "Return stored verdicts whose criterion has changed since they were made.",
+      "description": "Recalls verdict-tagged memories, recomputes each profile's current criterion hash once, and returns the rows whose crit-sha differs. Verdicts carrying no crit-sha predate the module and come back stale with crit_sha=None — unknown provenance is not the same as current, and treating it as current is how a rewritten rubric goes unnoticed. Accepts injected rows for offline runs.",
+      "docs": {
+        "goal": "Answer 'which stored conclusions rest on a rubric I have since rewritten?'",
+        "inputs_brief": "optional profile filter; optional voice for voice profiles; optional memories list; optional criterion root",
+        "outputs_brief": "list of memory rows each extended with crit_sha and current_sha",
+        "errors_brief": "CriterionUnavailable if a referenced profile's prose cannot be read.",
+        "example": "stale_verdicts('prose-register', voice=signature)"
+      },
+      "invocation": {"kind": "in-process", "argv_template": ["stale_verdicts"]},
+      "input": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": true,
+        "properties": {
+          "profile": {"type": ["string", "null"]},
+          "voice": {"type": "string", "default": ""},
+          "memories": {"type": ["array", "null"]},
+          "n": {"type": "integer", "default": 200}
+        }
+      },
+      "output": {"format": "array", "schema": {"type": "array", "items": {"type": "object"}}},
+      "side_effects": "None. Read-only.",
+      "idempotent": true,
+      "scopes_used": ["compute.local", "filesystem.local", "turso.libsql"],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "count_verdicts",
+      "summary": "How many stored verdicts exist — read against the module's promotion trigger.",
+      "description": "Counts verdict-tagged memories. The module docstring names the count at which tag-scanning becomes the query shape that broke boot in 2026-08, and therefore the point at which a partial index or a real schema column is the right call. This is the measurement that makes that decision re-checkable rather than permanent.",
+      "docs": {
+        "goal": "Keep the no-schema-column decision under review instead of frozen.",
+        "inputs_brief": "optional memories list; optional n",
+        "outputs_brief": "integer",
+        "errors_brief": "Turso read errors propagate from the remembering layer on the default path.",
+        "example": "count_verdicts()"
+      },
+      "invocation": {"kind": "in-process", "argv_template": ["count_verdicts"]},
+      "input": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": true,
+        "properties": {
+          "memories": {"type": ["array", "null"]},
+          "n": {"type": "integer", "default": 5000}
+        }
+      },
+      "output": {"format": "number", "schema": {"type": "integer"}},
+      "side_effects": "None. Read-only.",
+      "idempotent": true,
+      "scopes_used": ["compute.local", "turso.libsql"],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "import tempfile, pathlib\nfrom muninn_utils.verdict import fingerprint, verdict_tags, stale_verdicts\nd=pathlib.Path(tempfile.mkdtemp())\n(d/'prose.md').write_text('rubric v1')\nfp=fingerprint('prose', judge='gemini', root=d)\nrows=[{'id':'m1','tags':verdict_tags('gemini','prose',fp['crit_sha'])}]\nassert stale_verdicts('prose', memories=rows, root=d)==[]\n(d/'prose.md').write_text('rubric v2')\ns=stale_verdicts('prose', memories=rows, root=d)\nassert len(s)==1 and s[0]['id']=='m1', s\nprint('OK')\n"
+    ],
+    "timeout_seconds": 10,
+    "success": {"exit_code": 0, "stdout_regex": "^OK$"}
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/verdict/REVOKE.md"
+  },
+  "cost": {"install_fee_cents": 0, "monthly_fee_cents": 0, "usage_model": "none"},
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/verdict.py"
+  }
+}
