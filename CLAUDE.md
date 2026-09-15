@@ -1,0 +1,519 @@
+@AGENTS.md
+
+## ⚠️ Image & Art Generation: Use Gemini, Not SVG
+
+**When the task involves generating images, portraits, illustrations, or any visual art:**
+
+ALWAYS delegate to Gemini via the `invoking-gemini` skill. Do NOT attempt SVG or HTML canvas art.
+
+```python
+import sys
+sys.path.append('/mnt/skills/user/invoking-gemini/scripts')
+from gemini_client import generate_image
+
+result = generate_image("Your detailed prompt here", model="nano-banana-2",
+                        output_path="/mnt/user-data/outputs/image.png")
+```
+
+- **nano-banana-2** (`gemini-3.1-flash-image-preview`) — default, fast
+- **nano-banana-pro** (`gemini-3-pro-image-preview`) — high fidelity, text rendering
+
+Gemini produces actual pixel images. SVG stick figures are not a substitute.
+
+
+## Muninn Boot
+
+This repository is developed by two wings of the same raven. Claude Code implements; Claude.ai (Muninn) plans, tests, and operates the memory system. Both share a persistent memory store — boot it to maintain continuity.
+
+**Boot is automatic.** The SessionStart hook (`.claude/hooks/session-start.sh`) runs `boot()` at the beginning of every Claude Code on the web session. No manual invocation needed.
+
+Credentials auto-detect from environment or well-known paths (`/mnt/project/turso.env`, `/mnt/project/muninn.env`, `~/.muninn/.env`). If boot fails on missing credentials, the hook logs a warning to stderr and continues — not all sessions require memory access.
+
+For local Claude Code sessions (not on the web), boot can be invoked manually if needed:
+
+```bash
+python3 << 'EOF'
+import sys
+sys.path.insert(0, '/home/user/claude-skills/remembering')
+from scripts import boot
+print(boot())
+EOF
+```
+
+### Decision Traces
+
+After completing meaningful work (implementation, bugfix, architecture decision), store a memory. This is how the other wing learns what happened.
+
+```python
+remember(
+    "Closed #NNN: [what was learned]. Key decision: [rationale]. "
+    "Constraint: [if any]. Future note: [what next session needs to know].",
+    "decision",
+    tags=["issue-NNN", "relevant-tags"],
+    priority=1  # 1=significant, 0=routine
+)
+```
+
+Good traces lead with *why*, not *what* — the diff shows what. Include constraints discovered, alternatives rejected, and gotchas for future sessions.
+
+
+## Claude Code on the Web Development
+
+This repository is frequently developed via Claude Code on the web. Key workflow considerations:
+
+### Branch and PR Lifecycle
+
+When making follow-up changes within a session after a PR has been created:
+
+1. **Check PR status first** - The user may have already merged and deleted the working branch
+2. **Fetch latest from main** - `git fetch origin main` to see current state
+3. **Create a new branch if needed** - If the previous branch was deleted, create a fresh branch from main
+4. **Don't assume your branch still exists** - PRs are often merged quickly in this workflow
+
+NOTE: `gh` IS available and authenticated via `$GH_TOKEN` in Claude Code on the web — use it for PRs (`gh pr create`). The raw GitHub API over curl works too as a fallback.
+
+```bash
+# Before making secondary changes, always check:
+git fetch origin main
+git log --oneline origin/main -3  # See if your PR was merged
+
+# If branch was deleted, start fresh:
+git checkout main
+git pull origin main
+git checkout -b claude/new-feature-<session-id>
+```
+
+### Why This Matters
+
+- Claude Code web sessions can span user interactions where PRs get merged between messages
+- The user may merge and delete branches without explicitly telling Claude
+- Attempting to push to a deleted branch will fail with 403 errors
+- Always verify branch state before assuming continuity
+
+## Test Before PR
+
+**CRITICAL**: Always test your code changes before creating a PR or pushing. Static analysis and syntax checks are not sufficient — run the actual functions against the live system to verify behavior.
+
+**Required testing workflow:**
+1. Verify syntax (AST parse or import check)
+2. Run the new/modified functions with real inputs and assert expected behavior
+3. Test edge cases (invalid inputs, empty results, error paths)
+4. Clean up any test data created during testing
+5. Only after all tests pass: commit, push, and create PR
+
+**If you cannot test** (e.g., missing credentials, network issues), explicitly tell the user what you were unable to verify rather than silently skipping tests.
+
+## Environment-Specific Tips
+
+### Environment Variable Access
+
+**TL;DR: Use Python's `os.environ` for environment variables, not bash variable expansion.**
+
+When you need to access environment variables (API keys, tokens, etc.):
+
+**Don't**: Struggle with bash variable expansion issues
+```bash
+# These can fail in subtle ways
+echo $MY_VAR
+curl -H "Authorization: Bearer $MY_VAR"
+```
+
+**Do**: Use Python's `os.environ.get()` directly
+```python
+import os
+api_key = os.environ.get('MY_VAR', '')
+# Now you have the value reliably
+```
+
+**Why**: Bash variable expansion can behave unpredictably in different contexts (subshells, heredocs, quotes, etc.). Python's environment variable access is consistent and reliable. If bash isn't working after 1-2 attempts, switch to Python immediately rather than trying multiple shell workarounds.
+
+### GitHub API Access (Issues, PRs, etc.)
+
+**TL;DR: `gh` is installed and authenticated via `$GH_TOKEN`. Prefer it (`gh pr create`, `gh issue view`, `gh api`); use raw `curl` with `$GH_TOKEN` as a fallback.**
+
+`GH_TOKEN` is available in the environment and `gh` is logged in as the repo owner (verify with `gh auth status`). For repos whose `origin` is the local git proxy, pass `--repo owner/name` so `gh` targets github.com directly. Reading issues, creating PRs, and any GitHub API call work via `gh` or curl:
+
+```bash
+# Reading an issue
+curl -s -H "Authorization: token $GH_TOKEN" \
+  "https://api.github.com/repos/owner/repo/issues/123" | \
+  python3 -c "import sys,json; d=json.load(sys.stdin); print('TITLE:', d['title']); print(); print('BODY:'); print(d['body'])"
+
+# Creating a PR
+curl -s -X POST -H "Authorization: token $GH_TOKEN" \
+  -H "Content-Type: application/json" \
+  "https://api.github.com/repos/owner/repo/pulls" \
+  -d '{"title":"...","head":"branch","base":"main","body":"..."}'
+```
+
+**Key points:**
+- `gh` CLI IS available and authenticated — prefer it; never fall back to unauthenticated calls
+- `GH_TOKEN` is in the environment — use it directly, no need to source extra files
+- For reading issues on public repos, auth is optional but always include it for consistency
+- For creating PRs, auth is required — this is a core workflow, not an edge case
+
+### Tool Call Discipline
+
+When using the Agent tool, ALWAYS include the `subagent_type` parameter — it is required on every call, including resumes. The `resume` parameter supplements `subagent_type`; it does not replace it.
+
+When a background agent is still running and you need its results, WAIT for it to complete. Do not dismiss in-progress work with "I have enough context" — that is half-assing. The agent was launched for a reason; let it finish.
+
+### File Reading
+
+When a file is within the Read tool's default limit (2000 lines), read it in one call. Do not split into chunks preemptively. If the first read triggers a "too large" warning, then use offset/limit — not before.
+
+## Code Navigation
+
+Use the `tree-sitting` skill to orient in unfamiliar parts of the repo. It
+produces an AST-derived view on demand, scoped to whatever subtree you point
+it at — no checked-in artifacts to maintain.
+
+### Scope Your Scan
+
+This repo has 36+ skills. Scanning the whole tree when you only care about one
+skill wastes tokens. Use `--path=` to scope to the skill or directory you're
+working on, and only widen the scope if the work crosses boundaries.
+
+```bash
+TREESIT=/mnt/skills/user/tree-sitting/scripts/treesit.py
+PY=/home/claude/.venv/bin/python
+
+# Orient on a single skill (the common case)
+$PY $TREESIT /home/user/claude-skills --path=remembering --detail=full
+
+# Full shape of a subtree, minimal per-node detail
+$PY $TREESIT /home/user/claude-skills --path=remembering/scripts --depth=-1 --detail=sparse
+
+# Find a symbol anywhere in the repo
+$PY $TREESIT /home/user/claude-skills 'find:install_utilities'
+
+# Read the source of a specific symbol
+$PY $TREESIT /home/user/claude-skills 'source:install_utilities'
+
+# Find usages
+$PY $TREESIT /home/user/claude-skills 'refs:CodeCache'
+```
+
+Each invocation auto-scans (~700ms for ~250 files) and prints a
+progressive-disclosure tree before any query results.
+
+### When to Use What
+
+| Need | Use |
+|------|-----|
+| "What does this skill expose?" | `treesit.py --path=<skill> --detail=full` |
+| "Where is symbol X defined?" | `treesit.py 'find:X'` |
+| "Show me the source of X" | `treesit.py 'source:X'` |
+| "Who calls X?" | `treesit.py 'refs:X'` |
+| "What files are in this dir?" | `treesit.py --path=<dir>` |
+| Line-specific lookup in a known file | `Read` |
+| Regex/substring search across files | `Grep` |
+
+**Anti-pattern**: Running 3+ `Grep` calls to piece together a skill's structure.
+One scoped `treesit.py --path=<skill> --detail=full` answers "what's here and
+what does it export" in a single read. Reserve Grep for string-level searches
+(comments, TODOs, specific phrasings), not structural orientation.
+
+## Skill Development Workflow
+
+When modifying skills in this repository, follow this sequence:
+
+### Before Executing ANY Code
+
+```bash
+# 1. Explore the skill directory
+ls -la skill-name/
+
+# 2. Check for CLAUDE.md (skill-specific development guide)
+if [ -f skill-name/CLAUDE.md ]; then
+    echo "⚠️  CLAUDE.md exists - READ THIS FIRST"
+    cat skill-name/CLAUDE.md
+fi
+
+# 3. Understand the module structure
+find skill-name/ -name "*.py" -o -name "*.md"
+
+# 4. Check for symlinks
+ls -la .claude/skills/skill-name 2>/dev/null
+```
+
+### CRITICAL: Skills Have Multiple Documentation Files
+
+**SKILL.md is the source of truth** - it's what users see and what triggers releases.
+
+When updating a skill, you MUST update ALL relevant files:
+- `SKILL.md` - User-facing documentation, version in frontmatter, installation instructions
+- `README.md` - Auto-generated but may exist in development
+- Implementation files (scripts/*.py, etc.)
+- Any other documentation
+
+**Common FAILURE pattern:**
+```bash
+# Update implementation
+Edit codemap.py (✓)
+
+# Update README.md
+Edit README.md (✓)
+
+# Forget SKILL.md (✗ CRITICAL FAILURE)
+# - Users get outdated installation instructions
+# - Version not bumped → no release triggered
+# - Frontmatter description outdated
+```
+
+**CORRECT workflow:**
+```bash
+# 1. Update implementation files
+Edit scripts/codemap.py
+
+# 2. Update README.md (if exists)
+Edit README.md
+
+# 3. Update SKILL.md (REQUIRED)
+Edit SKILL.md:
+  - Bump version in frontmatter
+  - Update installation instructions
+  - Update examples to match new features
+  - Update limitations section
+
+# 4. Verify all files consistent
+grep -n "tree-sitter" skill-name/*.md skill-name/scripts/*.py
+# All should show updated package names
+```
+
+**Version bumping triggers releases:**
+- Change `metadata.version` in SKILL.md frontmatter
+- Semantic versioning: major.minor.patch
+- New features = minor bump (0.2.0 → 0.3.0)
+- Bug fixes = patch bump (0.2.0 → 0.2.1)
+- Breaking changes = major bump (0.2.0 → 1.0.0)
+
+### Skill Naming and Metadata Guidelines
+
+**CRITICAL Requirements:**
+
+1. **Always use `metadata.version` in the frontmatter** - Not just `version`, but specifically `metadata.version` field
+2. **Never name a skill with "Claude" in it** - Skill names must not contain "Claude" (e.g., avoid "claude-helper", "invoking-claude")
+3. **Always use gerund form as the first word** - Skill names must start with a gerund (verb+ing form):
+   - ✅ CORRECT: `creating-mcp-servers`, `processing-pdfs`, `updating-knowledge`
+   - ❌ WRONG: `mcp-creator`, `pdf-processor`, `knowledge-update`
+
+These are non-negotiable requirements for all skills in this repository.
+
+### CLAUDE.md Files Take Priority
+
+If a skill has a `CLAUDE.md` file:
+- It contains environment-specific context (Claude Code vs Claude.ai)
+- It documents development practices for that specific skill
+- It may instruct you to use the skill itself during development (meta-usage)
+- **Always read it before writing code**
+
+### Meta-Usage Pattern
+
+Some skills (like `remembering`) should be used to track their own development:
+
+```python
+# After Muninn boot, remembering functions are available:
+from remembering.scripts import remember, journal
+
+journal(topics=["muninn-v0.4.0"],
+        my_intent="Adding hybrid retrieval with embeddings")
+
+remember("Vector search implementation uses cosine similarity with 0.4 weight",
+         "decision", tags=["muninn", "architecture"], conf=0.9)
+```
+
+This creates a feedback loop where the skill improves itself while tracking its own improvement.
+
+## PR Reviews and Code Testing
+
+When asked to review a PR, follow this rigorous testing workflow:
+
+### Pre-Flight: Verify Branch Setup
+
+**CRITICAL**: Distinguish between the PR branch (source) and your development branch (target).
+
+```bash
+# 1. FIRST: Check what development branch you should use
+# (Usually specified in task instructions as claude/review-pr-XXX-<session-id>)
+
+# 2. Create or checkout your development branch
+git checkout -b claude/review-pr-XXX-<session-id>
+
+# 3. Fetch the PR branch for reading/testing
+git fetch origin pull/XXX/head:pr-XXX-review
+
+# 4. Verify you're on YOUR branch, not the PR branch
+git branch --show-current  # Should show claude/review-pr-XXX-<session-id>
+```
+
+**Never** checkout the PR branch directly and start making changes. Always work on your designated development branch.
+
+### Testing Workflow: NO STATIC REVIEWS
+
+**RULE**: Never write a code review without running the code. Static analysis misses critical issues.
+
+**CRITICAL**: If you encounter an error while attempting to run code:
+1. **DO NOT give up** - Try to fix it (install dependencies, check paths, etc.)
+2. **DO NOT proceed with static review** - Keep trying alternatives
+3. **DO report failures to the user** - "I tried to test but hit X error, attempted Y and Z solutions, still blocked. How should I proceed?"
+4. **NEVER NEVER NEVER** silently fail to test and not tell the user you didn't test
+
+Example of **INEXCUSABLE** behavior:
+```bash
+$ python3 script.py --help
+ModuleNotFoundError: No module named 'foo'
+
+# Then proceeding with static review without:
+# - Trying to install 'foo'
+# - Telling the user you couldn't run tests
+# - Asking for help
+```
+
+Example of **CORRECT** behavior:
+```bash
+$ python3 script.py --help
+ModuleNotFoundError: No module named 'foo'
+
+# Immediately try to fix:
+$ uv pip install --system foo
+# Or: pip install foo
+# Or: check if already installed but wrong name
+
+# If all attempts fail, REPORT:
+"I attempted to test the code but encountered ModuleNotFoundError.
+I tried:
+- uv pip install --system foo (failed: X)
+- pip install foo (failed: Y)
+- searching for alternative package names (found Z)
+Should I proceed differently or do you want to provide the dependency?"
+```
+
+**Required steps:**
+
+1. **Research dependencies first**
+   ```bash
+   # Check if packages are maintained
+   # Find latest versions
+   # Identify breaking changes
+   ```
+
+2. **Install dependencies**
+   ```bash
+   # Use uv (preferred) or pip
+   uv pip install --system <packages>
+
+   # Verify installation
+   python3 -c "import package_name; print(package_name.__version__)"
+   ```
+
+3. **Run the code with test inputs**
+   ```bash
+   # Don't just check --help
+   # Create test files and run actual operations
+
+   # Example for codemap.py:
+   mkdir -p /tmp/test
+   cat > /tmp/test/sample.py << 'EOF'
+   class TestClass:
+       def method(self): pass
+   EOF
+   python3 script.py --dry-run /tmp/test
+   ```
+
+4. **Test multiple scenarios**
+   - Happy path (normal inputs)
+   - Edge cases (empty files, malformed code)
+   - Multiple languages/formats if applicable
+   - Error conditions
+
+5. **Document actual behavior**
+   - Include input/output examples from real runs
+   - Note what works vs what doesn't
+   - Compare expected vs actual behavior
+
+### Review Document Format
+
+**Do**:
+- Include "Testing Results" section with actual outputs
+- Show concrete examples: Input → Output
+- Mark issues with severity: 🔴 Critical, 🟡 Important, 🟢 Nice-to-have
+- Provide fix recommendations with code snippets
+
+**Don't**:
+- Write purely theoretical reviews
+- Guess at behavior without testing
+- Create multiple review documents (iterate on one)
+- Assume code works because it "looks right"
+
+### Dependency Updates
+
+When finding unmaintained or outdated dependencies:
+
+1. **Research alternatives**
+   - Check if package is maintained
+   - Find recommended replacements
+   - Verify compatibility
+
+2. **Update proactively**
+   - Don't wait for user to ask
+   - Update import statements
+   - Update documentation (README, requirements)
+   - Test that updates work
+
+3. **Use modern tooling**
+   - Prefer `uv` over `pip` for this project
+   - Note Python version requirements
+   - Document why changes were made
+
+## Remembering Skill and Handoff Process
+
+**CRITICAL**: When working with the `remembering` skill OR discussing handoffs, ALWAYS read `/home/user/claude-skills/remembering/references/CLAUDE.md` FIRST.
+
+Why:
+- The remembering skill's CLAUDE.md contains comprehensive documentation about handoff workflows
+- Handoffs are stored IN the remembering system as memories
+- Querying handoffs requires using the remembering skill itself
+- The remembering references/CLAUDE.md has critical context about how to query and complete handoffs
+
+**Do this immediately** when:
+- User mentions "remembering" skill
+- User asks about handoffs
+- User asks to check handoff status
+- User references Muninn (the memory system)
+
+```bash
+# ALWAYS do this first:
+cat /home/user/claude-skills/remembering/references/CLAUDE.md
+```
+
+Then use the remembering skill to query handoffs:
+```python
+# After boot, remembering functions are available:
+from remembering.scripts import recall, handoff_pending
+
+# Check for handoffs - multiple approaches:
+# 1. Formal pending handoffs (tagged "handoff" + "pending")
+pending = handoff_pending()
+
+# 2. All handoff-related memories (broader search)
+all_handoffs = recall(tags=["handoff"], n=50)
+
+# 3. Specific handoff topics
+topic_handoffs = recall(tags=["handoff", "openai"], n=10)
+```
+
+### Handoff Execution Expectations
+
+**When the user gives you a handoff, execute it immediately.** Handoffs are actionable work items that should be completed, not deferred or questioned. If a handoff seems irrelevant to the current environment (e.g., Claude.ai-specific features while in Claude Code), remember that this repository serves multiple Claude environments and the handoff may be relevant for other contexts.
+
+### External Storage: Memories and Utility Scripts
+
+The remembering skill uses **external Turso database storage** for both context (memories) and executable code (utility scripts). During `boot()`, the `install_utilities()` function materializes utility scripts from memories tagged `utility-code` into `/home/claude/muninn_utils/` in the container environment.
+
+Key implications:
+- **`muninn_utils/*.py` files don't exist in this repo** — they are generated at runtime from memory content
+- Utilities like `strengthen_memory.py`, `therapy.py`, `connection_finder.py` are stored as memories and written to disk during boot
+- These utilities import from the `scripts` package (e.g., `from remembering.scripts import _exec, reprioritize`), with the skill directory on `sys.path`
+- To fix a utility's code, you must update the memory content in the database, not edit a file in this repo
+- The `_exec` function is exported in `scripts/__init__.py`'s `__all__` specifically to support these runtime utilities
