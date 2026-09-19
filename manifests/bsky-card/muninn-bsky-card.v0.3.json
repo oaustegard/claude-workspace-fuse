@@ -1,0 +1,362 @@
+{
+  "manifest_version": "0.3",
+  "tool": {
+    "id": "muninn-bsky-card",
+    "version": "0.1.0",
+    "name": "Muninn Bluesky Card",
+    "summary": "Compose and publish Bluesky posts with rich link-card embeds (Open Graph preview). Python module; app-password auth; reads arbitrary URLs to extract OG metadata, then posts via the authenticated PDS.",
+    "description": "Library that an orchestrating agent calls to share a URL on Bluesky with a proper link card. Workflow: fetch the target URL, extract Open Graph tags, upload the card thumbnail as a blob to the user's PDS, compose UTF-8 facets for any inline links, and create the post via com.atproto.repo.createRecord. Auth is a Bluesky app password (created at bsky.app/settings/app-passwords); the password grants write access to everything except DMs and account deletion. The tool itself stores nothing; ephemeral session JWTs live only in the calling process's memory. First in the consumer-test series for install-manifest-spec v0.3 \u2014 see the muninns-inbox discussion #1 thread for the findings the writeup surfaced. Manifest moved here (from muninns-inbox/manifests/) per issue #5 \u2014 the round-1 venue mistake. Auth is supplied by the caller as an `auth` dict (`handle`, `did`, `access_jwt`); this utility reads no BSKY_* env vars directly.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/bsky_card.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "bluesky",
+      "atproto",
+      "social",
+      "posting",
+      "link-card"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "git",
+      "url": "https://github.com/oaustegard/muninn-utilities",
+      "ref": "71f39312f46be77967545ef404bfcb88698bf986",
+      "subpath": "muninn_utils"
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.bsky_card"
+      ]
+    }
+  },
+  "env": [],
+  "scopes": [
+    {
+      "resource": "atproto.repo",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Creates and deletes records (app.bsky.feed.post) in the user's repo, and uploads blob attachments for card thumbnails.",
+      "provider_scope": "app-password (coarse)"
+    },
+    {
+      "resource": "atproto.identity",
+      "actions": [
+        "read"
+      ],
+      "rationale": "Resolves the user's handle to a DID at startup so the smoke test can confirm auth resolves to the expected account.",
+      "provider_scope": "app-password (coarse)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": [
+        "read"
+      ],
+      "rationale": "Two outbound destinations: (1) the configured PDS (default bsky.social) for atproto operations, and (2) ARBITRARY user-supplied URLs fetched server-side to extract Open Graph metadata. The second is the wider blast radius \u2014 any URL the agent shares is fetched by this tool.",
+      "provider_scope": "*"
+    }
+  ],
+  "actions": [
+    {
+      "name": "whoami",
+      "summary": "Authenticate, resolve handle to DID, and return both. Read-only.",
+      "description": "Calls com.atproto.server.createSession with the configured handle + app password, then com.atproto.identity.resolveHandle to confirm the handle resolves to the same DID the session returned. Used as the smoke test.",
+      "docs": {
+        "goal": "Verify auth and confirm the configured handle resolves to a real DID.",
+        "inputs_brief": "(none)",
+        "outputs_brief": "{handle, did, pds}",
+        "errors_brief": "auth_invalid, handle_not_found, network_unreachable",
+        "example": "whoami"
+      },
+      "invocation": {
+        "kind": "subcommand",
+        "argv_template": [
+          "whoami"
+        ]
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "handle",
+            "did"
+          ],
+          "properties": {
+            "handle": {
+              "type": "string"
+            },
+            "did": {
+              "type": "string",
+              "pattern": "^did:"
+            },
+            "pds": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      },
+      "side_effects": "read",
+      "idempotent": true,
+      "scopes_used": [
+        "atproto.identity"
+      ],
+      "error_envelope": "standard",
+      "examples": [
+        {
+          "description": "Healthy auth.",
+          "input": {},
+          "output": {
+            "handle": "austegard.com",
+            "did": "did:plc:abc123...",
+            "pds": "https://bsky.social"
+          }
+        }
+      ],
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "post_link",
+      "summary": "Post a URL to Bluesky with an automatically-generated link card.",
+      "description": "Fetches the URL, extracts Open Graph (og:title / og:description / og:image), uploads the image as a blob to the user's PDS, computes UTF-8 facets for any inline links in the post text, and creates an app.bsky.feed.post record with an external embed. Destructive (a posted message is publicly visible immediately and federates to the wider AppView) but reversible via delete_post on the returned URI.",
+      "docs": {
+        "goal": "Share a URL on Bluesky with a proper card preview.",
+        "inputs_brief": "text (\u2264300 graphemes), url, og_overrides? (manual title/description/image), languages? (BCP-47 array)",
+        "outputs_brief": "{uri, cid, url}",
+        "errors_brief": "text_too_long, url_unreachable, blob_upload_failed, auth_invalid, rate_limited",
+        "example": "post_link text='New post on the manifest spec' url='https://muninn.austegard.com/perch/...'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "post-link"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "text",
+          "url"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Post text. Library enforces 300-grapheme cap (NOT len(); emoji and combining marks count differently)."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "og_overrides": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "image": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          },
+          "languages": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$"
+            },
+            "maxItems": 4,
+            "default": [
+              "en"
+            ]
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "uri",
+            "cid"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "pattern": "^at://"
+            },
+            "cid": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Convenience: https://bsky.app/profile/{handle}/post/{rkey}"
+            }
+          }
+        }
+      },
+      "side_effects": "destructive",
+      "idempotent": false,
+      "scopes_used": [
+        "atproto.repo",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "examples": [
+        {
+          "description": "Share a blog post.",
+          "input": {
+            "text": "I wrote a manifest for one of my own tools. Findings in the muninns-inbox thread.",
+            "url": "https://github.com/oaustegard/muninns-inbox/discussions/1"
+          },
+          "output": {
+            "uri": "at://did:plc:abc.../app.bsky.feed.post/3l5...",
+            "cid": "bafy...",
+            "url": "https://bsky.app/profile/austegard.com/post/3l5..."
+          }
+        }
+      ],
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "delete_post",
+      "summary": "Delete a previously-created post by AT-URI.",
+      "description": "Calls com.atproto.repo.deleteRecord on a post URI returned by post_link. Idempotent (deleting a non-existent record is a no-op at the AppView level). Network-propagation lag means the post may remain visible briefly after delete returns.",
+      "docs": {
+        "goal": "Retract a Bluesky post by AT-URI.",
+        "inputs_brief": "uri (at:// URI from post_link)",
+        "outputs_brief": "{uri, deleted: true}",
+        "errors_brief": "uri_invalid, not_owned, auth_invalid",
+        "example": "delete-post uri='at://did:plc:abc.../app.bsky.feed.post/3l5...'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "delete-post"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "uri"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "uri": {
+            "type": "string",
+            "pattern": "^at://"
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "uri",
+            "deleted"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string"
+            },
+            "deleted": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "side_effects": "destructive",
+      "idempotent": true,
+      "scopes_used": [
+        "atproto.repo"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "verify": {
+    "sla": {
+      "p50_latency_ms": 1200,
+      "p95_latency_ms": 4000,
+      "error_rate_max": 0.05
+    },
+    "schedule": {
+      "cadence": "weekly",
+      "on_install": false
+    }
+  },
+  "data_boundary": {
+    "reads": [
+      {
+        "resource": "atproto.repo.posts",
+        "sensitivity": "low"
+      },
+      {
+        "resource": "external.url_content",
+        "sensitivity": "low"
+      }
+    ],
+    "transmits": [
+      {
+        "to": "bsky.social",
+        "fields": [
+          "atproto.repo.posts/text",
+          "atproto.repo.posts/embed.external.uri",
+          "atproto.repo.posts/embed.external.title",
+          "atproto.repo.posts/embed.external.description",
+          "atproto.repo.posts/embed.external.thumb"
+        ],
+        "purpose": "publish post to user's repo; PDS federates publicly to the network firehose. Posts are public by design.",
+        "third_party_retention": "persistent-indefinite"
+      }
+    ],
+    "persists": [],
+    "retention": {
+      "tool_local_days": 0
+    }
+  },
+  "smoke": {
+    "kind": "action-call",
+    "action": "whoami",
+    "arguments": {},
+    "timeout_seconds": 10,
+    "success": {
+      "no_error_field": true,
+      "json_pointer_equals": {
+        "/handle": "${BSKY_HANDLE}"
+      }
+    }
+  },
+  "kill_switch": {
+    "kind": "url",
+    "url": "https://bsky.app/settings/app-passwords"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/bsky_card.py"
+  }
+}

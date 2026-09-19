@@ -1,0 +1,287 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-issue-close",
+    "version": "0.1.0",
+    "name": "Muninn issue_close",
+    "summary": "Close a GitHub issue with a learning synthesis. Posts the synthesis as a closing comment, then writes it as a `decision` memory tagged with the issue number \u2014 encoded as a flowing DAG so the close ack returns the moment GitHub returns 2xx, while the memory write happens detached.",
+    "description": "Two-artifact close: GitHub issue gets the implementation log (the closing comment), Muninn's memory store gets the behavioral learning (the decision memory). Wraps a `flowing` graph so synthesis-text validation runs BEFORE any GitHub call fires, the close-issue ack is the terminal node (returns immediately on 2xx), and the memory-store + optional pending-test-verification run as detached side-effects whose failure populates `flow.detached_failures` rather than bubbling up. Same shape as `perch_publish` (single primary credential, structured comment) but writes to a different surface (issues, not pages) and with a paired Turso write per close. Issue #5 calls this out as the credential-reuse-with-perch_publish test.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/issue_close.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "github",
+      "issues",
+      "decision-memory",
+      "learning-synthesis",
+      "flowing"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.issue_close"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.issue_close"
+      ]
+    }
+  },
+  "env": [
+    {
+      "name": "GH_TOKEN",
+      "prompt": "GitHub personal access token. Needs write access (issues scope) to the target repo. Classic PAT with repo scope works; fine-grained PAT with explicit per-repo Issues:write is preferred. The same token is used by perch_publish, blog_publish, perch_triage, and verify_patch \u2014 share-by-default is intentional.",
+      "secret": true,
+      "required": true,
+      "validation_regex": "^(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]+)$",
+      "obtain_url": "https://github.com/settings/personal-access-tokens"
+    },
+    {
+      "name": "GITHUB_TOKEN",
+      "prompt": "Optional fallback for GH_TOKEN. The source reads `os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')`.",
+      "secret": true,
+      "required": false,
+      "validation_regex": "^(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]+)$",
+      "obtain_url": "https://github.com/settings/personal-access-tokens"
+    },
+    {
+      "name": "TURSO_TOKEN",
+      "prompt": "Turso libSQL auth token for the Muninn memory database. The decision memory is written here. Required.",
+      "secret": true,
+      "required": true,
+      "obtain_url": "https://app.turso.tech/"
+    },
+    {
+      "name": "TURSO_URL",
+      "prompt": "Hostname of the Muninn memory libSQL database, e.g. 'mydb-username.turso.io'.",
+      "secret": false,
+      "required": true,
+      "validation_regex": "^[a-z0-9-]+\\.[a-z0-9-]+\\.turso\\.io$"
+    }
+  ],
+  "scopes": [
+    {
+      "resource": "github.issues",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Posts a closing comment and toggles state to closed on the target issue. Reads the current issue state to decide whether the close is a no-op.",
+      "provider_scope": "github-pat (coarse; full account write access)"
+    },
+    {
+      "resource": "memory.tracking",
+      "actions": [
+        "write"
+      ],
+      "rationale": "Stores the learning synthesis as a `decision`-typed memory tagged `issue-N` and the short-form repo identifier so that future recall can find it from either side of the issue/memory pair.",
+      "provider_scope": "turso-libsql-token (coarse; full DB access)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Talks to api.github.com (REST) for issue read/comment/close and to the configured Turso libSQL host for the memory write. No other outbound destinations.",
+      "provider_scope": "api.github.com, *.turso.io"
+    }
+  ],
+  "actions": [
+    {
+      "name": "close",
+      "summary": "Validate synthesis, close the GitHub issue with it as the closing comment, and store the decision memory in the background.",
+      "description": "Synchronously: validates the synthesis is non-empty, posts it as a comment on the issue, closes the issue. The close-ack (issue_url + comment_url) is returned immediately. Detached: writes a `decision`-type memory with the synthesis body and tags `issue-N`, `<repo-short>`, plus any extra_tags. If pending_test=true, an additional detached node verifies the pending-test contract on the freshly-stored memory. Detached failures populate the returned `detached_failures` array; they do NOT raise. Idempotent at the GitHub layer (closing an already-closed issue returns the same shape) but NOT at the memory layer (each close stores a new memory).",
+      "docs": {
+        "goal": "Close a GitHub issue with a learning synthesis and persist the synthesis as a decision memory.",
+        "inputs_brief": "number (req), synthesis (req), repo (default oaustegard/claude-skills), pending_test (bool), extra_tags (string[])",
+        "outputs_brief": "{issue_url, comment_url, memory_id, pending_test_applied, detached_failures}",
+        "errors_brief": "synthesis_empty, issue_not_found, auth_invalid, close_failed",
+        "example": "close number=619 synthesis='Pattern X works because Y' repo=oaustegard/claude-skills"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "close"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "number",
+          "synthesis"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "synthesis": {
+            "type": "string",
+            "minLength": 1
+          },
+          "repo": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+            "default": "oaustegard/claude-skills"
+          },
+          "pending_test": {
+            "type": "boolean",
+            "default": false
+          },
+          "extra_tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 16,
+            "default": []
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "issue_url",
+            "comment_url",
+            "memory_id"
+          ],
+          "properties": {
+            "issue_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "comment_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "memory_id": {
+              "type": "string"
+            },
+            "pending_test_applied": {
+              "type": "boolean"
+            },
+            "detached_failures": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "error": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "side_effects": "destructive",
+      "idempotent": false,
+      "scopes_used": [
+        "github.issues",
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "examples": [
+        {
+          "description": "Close issue #619 with a synthesis.",
+          "input": {
+            "number": 619,
+            "synthesis": "Refactor pattern X works because of Y. Constraint: Z.",
+            "repo": "oaustegard/claude-skills",
+            "extra_tags": [
+              "flowing",
+              "refactor"
+            ]
+          },
+          "output": {
+            "issue_url": "https://github.com/oaustegard/claude-skills/issues/619",
+            "comment_url": "https://github.com/oaustegard/claude-skills/issues/619#issuecomment-12345",
+            "memory_id": "abc12345",
+            "pending_test_applied": false,
+            "detached_failures": []
+          }
+        }
+      ],
+      "runtime_telemetry": {}
+    }
+  ],
+  "data_boundary": {
+    "reads": [
+      {
+        "resource": "github.issues",
+        "sensitivity": "low"
+      }
+    ],
+    "transmits": [
+      {
+        "to": "api.github.com",
+        "fields": [
+          "env.GH_TOKEN",
+          "input.synthesis"
+        ],
+        "purpose": "post closing comment + toggle issue state",
+        "third_party_retention": "none-per-vendor-tos",
+        "vendor_tos_url": "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement"
+      }
+    ],
+    "persists": [
+      {
+        "where": "tool_local",
+        "fields": [
+          "synthesis",
+          "issue_number",
+          "repo",
+          "extra_tags"
+        ]
+      }
+    ],
+    "retention": {
+      "tool_local_days": 365
+    }
+  },
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "import os, json, urllib.request\ntoken = os.environ['GH_TOKEN']\nreq = urllib.request.Request('https://api.github.com/repos/oaustegard/claude-skills', headers={'Authorization': f'token {token}', 'Accept': 'application/vnd.github+json', 'User-Agent': 'issue-close-smoke'})\nd = json.loads(urllib.request.urlopen(req).read())\nassert d['permissions']['push'], 'token lacks write access (needed for issue close)'\nprint('OK: write access confirmed to', d['name'])\n"
+    ],
+    "timeout_seconds": 10,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "OK: write access confirmed to claude-skills"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/issue-close/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "external"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/issue_close.py"
+  }
+}
