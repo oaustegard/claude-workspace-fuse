@@ -1,0 +1,129 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-boot-ledger",
+    "version": "0.1.0",
+    "name": "Muninn boot_ledger",
+    "summary": "Instrument the boot payload: rank every boot-loaded config entry by exact token cost against a fire-rate proxy, so the trigger/ops/voice catalog can be pruned instead of only grown.",
+    "description": "Companion to correction_gate (issue #83). correction_gate guards a single boot-loaded correction at write time; boot_ledger measures the whole payload after the fact (issue #84). Per boot-loaded config entry it reports cost (exact: chars + tiktoken/heuristic token estimate) and a fire-rate proxy (how many active memories reference the entry's domain via a curated high-precision term set, across how many months) — there is no historical config_get log and the archived transcripts are three stale sessions, so the memory corpus is the only longitudinal sample. Ranks by chars-per-hit (worst first = prune queue), classifies each entry (trigger / ops / identity / catalog), and lists never-fired demotion candidates. The durable fix ships alongside: config_get gains an opt-in fire counter (MUNINN_INSTRUMENT_FIRES) writing config.fire_count/last_fired for boot-loaded keys only, so a measurement window yields exact counts that supersede the proxy. Pure core (term extraction, matching, ranking, rendering) with Turso confined to injectable load_* adapters.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/boot_ledger.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "self-improvement",
+      "context-engineering",
+      "boot-payload",
+      "triggers",
+      "instrumentation",
+      "ace-curator"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.boot_ledger"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.boot_ledger"
+      ]
+    }
+  },
+  "scopes": [
+    {
+      "resource": "compute.local",
+      "actions": [
+        "read"
+      ],
+      "rationale": "Term extraction, matching, ranking and rendering are local, pure computation."
+    },
+    {
+      "resource": "turso.libsql",
+      "actions": [
+        "read"
+      ],
+      "sensitivity": "low",
+      "rationale": "load_boot_entries reads the config table; load_memory_corpus reads active memories (summary/tags/body) to compute the fire proxy. Both take an injectable exec_fn (stubbed in tests). The report writes nothing."
+    }
+  ],
+  "actions": [
+    {
+      "name": "report",
+      "summary": "Run the full instrument against live Turso (or an injected exec_fn) and return a ranked markdown table + summary, or JSON.",
+      "description": "Loads boot-loaded config entries and the active memory corpus, joins them into ranked LedgerRows (worst cost/fire first), and renders a markdown report or machine-readable JSON. Never-fired trigger/ops entries surface as demotion candidates; identity/catalog entries are flagged as not-demotable.",
+      "docs": {
+        "goal": "Make the boot payload's cost-vs-use legible so it can be curated.",
+        "inputs_brief": "optional exec_fn (defaults to live Turso), as_json flag",
+        "outputs_brief": "markdown report string, or JSON {summary, rows[]}",
+        "errors_brief": "Pure core; adapters raise only on Turso/connection failure.",
+        "example": "from muninn_utils.boot_ledger import report; print(report())"
+      },
+      "invocation": {
+        "kind": "in-process",
+        "argv_template": [
+          "report"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": true,
+        "properties": {
+          "as_json": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "output": {
+        "format": "string",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "side_effects": "None. Reads config + memories; writes nothing.",
+      "idempotent": true,
+      "scopes_used": [
+        "compute.local",
+        "turso.libsql"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.boot_ledger import Entry, Memory, build_ledger, extract_terms, demotion_candidates\nmems=[Memory('2026-06', extract_terms('opened a github pull request')), Memory('2026-06', extract_terms('github issue triage'))]\nents=[Entry('github-routing','ops',1900), Entry('dead-widget-trigger','ops',800)]\nrows=build_ledger(ents, mems)\nassert rows[0].key=='dead-widget-trigger', rows[0].key\nassert {r.key for r in demotion_candidates(rows)}=={'dead-widget-trigger'}\nprint('OK')\n"
+    ],
+    "timeout_seconds": 10,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK$"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/boot-ledger/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/docs/boot-ledger.md"
+  }
+}
