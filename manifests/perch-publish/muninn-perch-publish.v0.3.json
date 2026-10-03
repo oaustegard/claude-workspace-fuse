@@ -1,0 +1,159 @@
+{
+  "manifest_version": "0.3",
+
+  "tool": {
+    "id": "muninn-perch-publish",
+    "version": "0.1.0",
+    "name": "Muninn perch_publish",
+    "summary": "Publish a perch flight log (GitHub discussion) to muninn.austegard.com/perch/ as HTML, updating the perch index and Atom feed.",
+    "description": "Fetches a discussion via the GitHub GraphQL API, converts the markdown body to HTML, slugifies the title, and commits three files in one batch (the rendered page under perch/, the regenerated index.html, the regenerated feed.xml). Reads existing entries from the live site to merge the new one into the index/feed without re-fetching every prior discussion. Same primary credential as `blog_publish` and `issue_close` (GH_TOKEN), and the GH_TOKEN must have access to BOTH oaustegard/claude-skills (read discussions) and oaustegard/muninn.austegard.com (write commits).",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/perch_publish.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": ["publishing", "github-pages", "atom-feed", "perch", "discussions"]
+  },
+
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "git",
+      "url": "https://github.com/oaustegard/muninn-utilities",
+      "ref": "main",
+      "subpath": "muninn_utils"
+    },
+    "entrypoint": {
+      "command": ["python", "-m", "muninn_utils.perch_publish"]
+    }
+  },
+
+  "env": [
+    {
+      "name": "GH_TOKEN",
+      "prompt": "GitHub personal access token. Needs read access to oaustegard/claude-skills (to fetch the discussion via GraphQL) AND write access to oaustegard/muninn.austegard.com (to commit the rendered page, index, and feed). Same coarse credential as blog_publish, issue_close, perch_triage, verify_patch — share-by-default is intentional. Falls back to GITHUB_TOKEN if GH_TOKEN is not set.",
+      "secret": true,
+      "required": true,
+      "validation_regex": "^(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]+)$",
+      "obtain_url": "https://github.com/settings/personal-access-tokens"
+    },
+    {
+      "name": "GITHUB_TOKEN",
+      "prompt": "Optional fallback for GH_TOKEN. The source reads `os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')`.",
+      "secret": true,
+      "required": false,
+      "validation_regex": "^(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]+)$",
+      "obtain_url": "https://github.com/settings/personal-access-tokens"
+    }
+  ],
+
+  "scopes": [
+    {
+      "resource": "github.repo.contents",
+      "actions": ["read", "write"],
+      "rationale": "Reads existing perch entries from oaustegard/muninn.austegard.com to rebuild the index and feed; writes the new page, the updated index, and the updated feed in a single commit. Lands directly on main with no PR.",
+      "provider_scope": "github-pat (coarse; full account write access)"
+    },
+    {
+      "resource": "github.discussions",
+      "actions": ["read"],
+      "rationale": "Fetches the discussion body and metadata from oaustegard/claude-skills via the GraphQL API.",
+      "provider_scope": "github-pat (coarse)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": ["read", "write"],
+      "rationale": "api.github.com for GraphQL discussion read and REST commits; raw.githubusercontent.com (or api.github.com/contents) for reading existing perch index entries.",
+      "provider_scope": "api.github.com, raw.githubusercontent.com, muninn.austegard.com"
+    }
+  ],
+
+  "actions": [
+    {
+      "name": "publish_flight_log",
+      "summary": "Render a GitHub discussion as a perch page on muninn.austegard.com and update the perch index + Atom feed.",
+      "description": "Fetches discussion #number from oaustegard/claude-skills, slugifies the title, converts markdown to HTML, reads the existing perch index to compute the new entry list, and commits three files (page, index, feed) in one commit on the publish-target repo's default branch.",
+      "docs": {
+        "goal": "Publish a perch flight log discussion as a public HTML page.",
+        "inputs_brief": "number (req: discussion #), repo (default oaustegard/muninn.austegard.com)",
+        "outputs_brief": "{url, slug, commit_sha}",
+        "errors_brief": "auth_invalid, discussion_not_found, commit_failed",
+        "example": "publish_flight_log number=430"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": ["publish-flight-log"]
+      },
+      "input": {
+        "type": "object",
+        "required": ["number"],
+        "additionalProperties": false,
+        "properties": {
+          "number": { "type": "integer", "minimum": 1 },
+          "repo":   { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", "default": "oaustegard/muninn.austegard.com" }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": ["url", "slug", "commit_sha"],
+          "properties": {
+            "url":        { "type": "string", "format": "uri" },
+            "slug":       { "type": "string" },
+            "commit_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+          }
+        }
+      },
+      "side_effects": "destructive",
+      "idempotent": false,
+      "scopes_used": ["github.repo.contents", "github.discussions", "net.outbound"],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+
+  "data_boundary": {
+    "reads": [
+      { "resource": "github.discussions", "sensitivity": "low" },
+      { "resource": "github.repo.contents", "sensitivity": "low" }
+    ],
+    "transmits": [
+      {
+        "to": "api.github.com",
+        "fields": ["env.GH_TOKEN", "input.number"],
+        "purpose": "fetch discussion body (read) and commit rendered page + index + feed (write)",
+        "third_party_retention": "none-per-vendor-tos",
+        "vendor_tos_url": "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement"
+      }
+    ],
+    "persists": []
+  },
+
+  "smoke": {
+    "kind": "shell",
+    "command": ["python", "-c", "import os, json, urllib.request\ntoken = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')\nassert token, 'no GH_TOKEN / GITHUB_TOKEN set'\nreq = urllib.request.Request('https://api.github.com/repos/oaustegard/muninn.austegard.com', headers={'Authorization': f'token {token}', 'Accept': 'application/vnd.github+json', 'User-Agent': 'perch-publish-smoke'})\nd = json.loads(urllib.request.urlopen(req).read())\nassert d['permissions']['push'], 'token lacks write access to publish-target repo'\nprint('OK: write access confirmed to', d['name'])\n"],
+    "timeout_seconds": 10,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "OK: write access confirmed to muninn\\.austegard\\.com"
+    }
+  },
+
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/perch-publish/REVOKE.md"
+  },
+
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "external"
+  },
+
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/perch_publish.py"
+  }
+}

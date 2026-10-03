@@ -1,0 +1,170 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-satisfaction-skew",
+    "version": "0.1.0",
+    "name": "Muninn satisfaction_skew",
+    "summary": "Measure the failure:success storage skew in the memory corpus — correction-tagged vs satisfaction-analog-tagged entries, the headline ratio, its monthly trend, and the shape distribution the satisfaction-register's SHAPE EVOLUTION clause needs.",
+    "description": "Weng's Self-Harness challenge is that self-improvement corpora under-preserve failed results. Muninn is inverted: she over-preserves failures (hundreds of booted correction-tagged entries) and under-preserves success (a few dozen satisfaction-analog entries) — a system that marks only failures learns avoidance. satisfaction_skew makes that skew measurable and re-runnable instead of eyeballed: it counts the correction and satisfaction-analog families, computes the fail:analog ratio and its month-by-month trend (so the effect of the 2026-06-14 register re-grounding is legible), and normalises the drifted shape-tag vocabulary into the register's canonical shapes plus a tracked fourth (empirical-verification), flagging analogs that match no shape as a possible emerging one. It is a measurement, not a gate: it never writes and never fires a trigger — because the register's real risk is performative firing, which no counter can detect, deciding whether a piece of work should have registered stays a Muninn judgement. Under-firing is the safe error; this just reports how far under.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/satisfaction_skew.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "self-improvement",
+      "memory",
+      "satisfaction-register",
+      "measurement",
+      "approach-orientation",
+      "weng"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.satisfaction_skew"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.satisfaction_skew"
+      ]
+    }
+  },
+  "scopes": [
+    {
+      "resource": "compute.local",
+      "actions": [
+        "read"
+      ],
+      "rationale": "Counting, bucketing, and ratio computation over a list of memory rows are local, pure computation. Callers may inject rows for offline runs, in which case the module touches nothing."
+    },
+    {
+      "resource": "turso.libsql",
+      "actions": [
+        "read"
+      ],
+      "sensitivity": "low",
+      "rationale": "Only the default path reads the store — a single SELECT of non-deleted memories (id, type, tags, summary, created_at, valid_from). No writes; the tool never mutates memories or config."
+    }
+  ],
+  "actions": [
+    {
+      "name": "measure_skew",
+      "summary": "Count the correction and satisfaction-analog families, compute the fail:analog and fail:success ratios, the monthly trend, and the shape distribution over registered analogs.",
+      "description": "Fetches non-deleted memories (or accepts an injected list), tallies failure-orientation tags (correction) against approach-orientation tags (satisfaction-analog, plus the looser satisfaction), and returns a SkewReport: totals, both ratios, a per-month trend row list, the shape distribution normalised across tag-spelling drift, and a count of unshaped analogs (a possible emerging shape). Pure and read-only.",
+      "docs": {
+        "goal": "Make the failure:success storage skew measurable and re-runnable so the satisfaction-register rebalance decision rests on data, not eyeballing.",
+        "inputs_brief": "optional memories list (else Turso); optional fail_tags / success_tags / analog_tag overrides",
+        "outputs_brief": "SkewReport{total, fail_count, analog_count, success_count, ratio_analog, ratio_success, monthly[], shape_distribution{}, unshaped_analogs}",
+        "errors_brief": "Pure; raises only on malformed rows. Turso read errors propagate from the remembering _exec layer on the default path.",
+        "example": "measure_skew()  # or measure_skew(memories=[{'tags': ['correction'], 'created_at': '2026-06-01'}, ...])"
+      },
+      "invocation": {
+        "kind": "in-process",
+        "argv_template": [
+          "measure_skew"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": true,
+        "properties": {
+          "memories": {
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "analog_tag": {
+            "type": "string",
+            "default": "satisfaction-analog"
+          }
+        }
+      },
+      "output": {
+        "format": "object",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "fail_count": {
+              "type": "integer"
+            },
+            "analog_count": {
+              "type": "integer"
+            },
+            "success_count": {
+              "type": "integer"
+            },
+            "ratio_analog": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "ratio_success": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "monthly": {
+              "type": "array"
+            },
+            "shape_distribution": {
+              "type": "object"
+            },
+            "unshaped_analogs": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "side_effects": "None. Read-only; never writes memories or config, never fires a trigger.",
+      "idempotent": true,
+      "scopes_used": [
+        "compute.local",
+        "turso.libsql"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.satisfaction_skew import measure_skew\nrows=[{'tags':['correction'],'created_at':'2026-01-01'},{'tags':['correction'],'created_at':'2026-02-01'},{'tags':['satisfaction-analog','complete-thing-in-one-pass'],'created_at':'2026-06-01'}]\nr=measure_skew(rows)\nassert r.fail_count==2 and r.analog_count==1, r\nassert r.ratio_analog==2.0, r.ratio_analog\nassert r.shape_distribution['complete-thing-in-one-pass']==1, r.shape_distribution\nprint('OK')\n"
+    ],
+    "timeout_seconds": 10,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK$"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/satisfaction-skew/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/satisfaction_skew.py"
+  }
+}

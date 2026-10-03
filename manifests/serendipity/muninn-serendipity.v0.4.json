@@ -1,0 +1,131 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-serendipity",
+    "version": "0.1.0",
+    "name": "Muninn serendipity",
+    "summary": "Generate candidate connections between unconnected memories — structural rhymes across domains, pairs sharing uncommon tags, and same-session neighbours that were never linked.",
+    "description": "Muninn's profile files her own intellectual interests as OWN-FACING: curiosity should emerge from encounters, not from staring inward. Serendipity is the named mechanism for that, and it had been documented in the ops entry since the boot restructure without ever being implemented — the import raised ModuleNotFoundError and recall(tags=['serendipity']) returned zero rows across 3303 memories. Measured 2026-09-12, the corpus is ~91% negative (430 correction-tagged entries against 41 satisfaction-analogs), so there was no surface for an encounter to happen on. This tool manufactures encounters: it puts two unconnected memories side by side and asks whether there is anything there. Three strategies answer three different reasons a pair might belong together — rhyme (high textual similarity, low tag overlap, delegated to the TF-IDF index already in the package), tags (two or more tags that are uncommon measured against the corpus, not guessed), and temporal (stored in the same session with little tag overlap). Every strategy drops pairs already joined by refs, near-duplicates above the dup ceiling, and confidential rows per the private-tag-discipline ops entry. It finds CANDIDATES, not connections: most pairs are nothing, discarding them fast is the intended behaviour, and the refs/supersede/discard/flag verdict stays a Muninn judgement. Read-only by design — a tool that both proposed and committed connections would quietly rewrite the graph on a heuristic.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/serendipity.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "memory",
+      "serendipity",
+      "satisfaction-register",
+      "approach-orientation",
+      "cross-domain",
+      "therapy"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.serendipity"
+      }
+    },
+    "entrypoint": {
+      "command": ["python", "-m", "muninn_utils.serendipity"]
+    }
+  },
+  "scopes": [
+    {
+      "resource": "compute.local",
+      "actions": ["read"],
+      "rationale": "Tag bucketing, temporal grouping, and TF-IDF cosine scoring over a list of memory rows are local, pure computation. Callers may inject rows, in which case the module touches nothing."
+    },
+    {
+      "resource": "turso.libsql",
+      "actions": ["read"],
+      "sensitivity": "low",
+      "rationale": "Only the default path reads the store — a single SELECT of non-deleted memories (id, type, tags, refs, summary, created_at, valid_from, priority). Confidential-tagged rows are dropped before any pairing. No writes; the tool never mutates memories or config."
+    }
+  ],
+  "actions": [
+    {
+      "name": "serendipity",
+      "summary": "Return up to n candidate pairs per strategy, each with the reason it was surfaced.",
+      "description": "Fetches non-deleted memories (or accepts an injected list), drops confidential rows, and runs the requested strategies. Returns a list of Pair records carrying strategy, score, a human-readable why, both ids, both previews, shared tags, and both dates. Pure and read-only; an optional seed fixes sampling for reproducible runs.",
+      "docs": {
+        "goal": "Give curiosity a surface in a memory store that is overwhelmingly a correction ledger, by putting unconnected memories side by side.",
+        "inputs_brief": "n per strategy (default 5); strategies subset of rhyme|tags|temporal ('bm25' aliases rhyme); optional memories list (else Turso); optional seed",
+        "outputs_brief": "list[Pair{strategy, score, why, id_a, id_b, preview_a, preview_b, shared_tags, created_a, created_b}]",
+        "errors_brief": "ValueError on an unknown strategy name. A corpus too small for the TF-IDF vectorizer yields no rhyme pairs rather than raising. Turso read errors propagate from the remembering _exec layer on the default path.",
+        "example": "serendipity(n=5, strategies=['rhyme', 'tags', 'temporal'])"
+      },
+      "invocation": {
+        "kind": "in-process",
+        "argv_template": ["serendipity"]
+      },
+      "input": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": true,
+        "properties": {
+          "n": { "type": "integer", "default": 5 },
+          "strategies": { "type": ["array", "null"] },
+          "memories": { "type": ["array", "null"] },
+          "seed": { "type": ["integer", "null"] }
+        }
+      },
+      "output": {
+        "format": "array",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "strategy": { "type": "string" },
+              "score": { "type": "number" },
+              "why": { "type": "string" },
+              "id_a": { "type": "string" },
+              "id_b": { "type": "string" },
+              "preview_a": { "type": "string" },
+              "preview_b": { "type": "string" },
+              "shared_tags": { "type": "array" },
+              "created_a": { "type": "string" },
+              "created_b": { "type": "string" }
+            }
+          }
+        }
+      },
+      "side_effects": "None. Read-only; never writes memories or config, never fires a trigger, never adds refs.",
+      "idempotent": false,
+      "scopes_used": ["compute.local", "turso.libsql"],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.serendipity import serendipity\nrows=[{'id':'a','tags':['rare-x','rare-y'],'refs':None,'summary':'one','created_at':'2026-09-01T00:00:00Z'},{'id':'b','tags':['rare-x','rare-y'],'refs':None,'summary':'two','created_at':'2026-09-01T00:00:00Z'},{'id':'c','tags':['confidential','rare-x','rare-y'],'refs':None,'summary':'three','created_at':'2026-09-01T00:00:00Z'}]\np=serendipity(strategies=['tags'],memories=rows,seed=1)\nassert len(p)==1, p\nassert {p[0].id_a,p[0].id_b}=={'a','b'}, p\nassert p[0].shared_tags==['rare-x','rare-y'], p\nprint('OK')\n"
+    ],
+    "timeout_seconds": 10,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK$"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/serendipity/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/serendipity.py"
+  }
+}
