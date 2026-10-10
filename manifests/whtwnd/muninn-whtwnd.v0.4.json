@@ -1,0 +1,479 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-whtwnd",
+    "version": "0.1.0",
+    "name": "Muninn whtwnd",
+    "summary": "Publish, update, delete, and list WhiteWind blog entries via ATProto. Posts land in the user's PDS as `com.whtwnd.blog.entry` records and federate to the WhiteWind AppView.",
+    "description": "Five operations: post, update, delete, list, upload-image. Auth via the same `com.atproto.server.createSession` flow as bsky_card \u2014 the same handle and app password reach two distinct AppViews (Bluesky's and WhiteWind's) because both ride on the same PDS. Image attachments are uploaded as ATProto blobs and embedded in the entry's `blobs[]`; the URL pattern is the PDS-served `getBlob` endpoint, NOT the bsky CDN (which 500s for non-Bluesky records). The tool's only persistence is the records it creates on the user's PDS \u2014 those are the user's own data on the user's own infrastructure, not third-party transmissions. Issue #5 calls this out as the third atproto-credential utility (after bsky_card and the bsky-announce chain in blog_publish), the third publishing target (after perch_publish and blog_publish), and a novel-domain test (a federated atproto blog rather than a Bluesky post).",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/whtwnd.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "atproto",
+      "whtwnd",
+      "blog",
+      "publishing",
+      "federated"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.whtwnd"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.whtwnd"
+      ]
+    }
+  },
+  "env": [
+    {
+      "name": "BSKY_HANDLE",
+      "prompt": "The atproto handle whose PDS hosts the WhiteWind entries, e.g. 'austegard.com'. Same credential pair as bsky_card \u2014 handles do not differ between AppViews on the same PDS.",
+      "secret": false,
+      "required": true,
+      "validation_regex": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$",
+      "obtain_url": "https://bsky.app/settings/account"
+    },
+    {
+      "name": "BSKY_APP_PASSWORD",
+      "prompt": "App password for the handle. Treat as a secret. Cannot be programmatically revoked \u2014 revoke at https://bsky.app/settings/app-passwords.",
+      "secret": true,
+      "required": true,
+      "validation_regex": "^[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$",
+      "obtain_url": "https://bsky.app/settings/app-passwords"
+    }
+  ],
+  "scopes": [
+    {
+      "resource": "atproto.repo",
+      "actions": [
+        "read",
+        "write",
+        "delete"
+      ],
+      "rationale": "Creates, updates, deletes `com.whtwnd.blog.entry` records on the user's PDS. Uploads image blobs and embeds them in entries.",
+      "provider_scope": "app-password (coarse; full repo write except DMs and account deletion)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Talks to the user's PDS (default bsky.social) for atproto operations. No other outbound destinations \u2014 WhiteWind's AppView reads federated content directly from the PDS without this tool contacting whtwnd.com.",
+      "provider_scope": "*.bsky.social, *.bsky.network"
+    }
+  ],
+  "actions": [
+    {
+      "name": "post",
+      "summary": "Create a new WhiteWind blog entry on the user's PDS.",
+      "description": "Calls com.atproto.repo.createRecord with collection=com.whtwnd.blog.entry. The entry's `content` field is markdown; `title` is the display title. Optional `blobs` parameter embeds previously-uploaded image blobs so the PDS does not garbage-collect them. Destructive: a created entry federates immediately and is publicly visible at whtwnd.com/<handle>/<rkey>.",
+      "docs": {
+        "goal": "Publish a new WhiteWind blog post.",
+        "inputs_brief": "content (req, markdown), title (req), blobs (optional blob_metadata array)",
+        "outputs_brief": "{post_url, uri, cid, rkey}",
+        "errors_brief": "auth_invalid, content_too_long, blob_not_found, network_unreachable",
+        "example": "post content='# Title\\n\\nBody...' title='My Post'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "post"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "content",
+          "title"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "blobs": {
+            "type": "array"
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "post_url",
+            "uri",
+            "cid"
+          ],
+          "properties": {
+            "post_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "uri": {
+              "type": "string",
+              "pattern": "^at://"
+            },
+            "cid": {
+              "type": "string"
+            },
+            "rkey": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "side_effects": "destructive",
+      "idempotent": false,
+      "scopes_used": [
+        "atproto.repo",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "update",
+      "summary": "Update an existing WhiteWind entry by rkey.",
+      "description": "Calls com.atproto.repo.putRecord against the same collection + rkey. Replaces title and content. The entry's CID changes; previous CIDs are no longer canonical.",
+      "docs": {
+        "goal": "Edit a previously-published WhiteWind entry.",
+        "inputs_brief": "rkey (req), content (req), title (req), blobs (optional)",
+        "outputs_brief": "{post_url, uri, cid, rkey}",
+        "errors_brief": "auth_invalid, rkey_not_found, network_unreachable",
+        "example": "update rkey='3l5...' content='...' title='Edited'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "update"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "rkey",
+          "content",
+          "title"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "rkey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "blobs": {
+            "type": "array"
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "post_url",
+            "uri",
+            "cid"
+          ],
+          "properties": {
+            "post_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "uri": {
+              "type": "string",
+              "pattern": "^at://"
+            },
+            "cid": {
+              "type": "string"
+            },
+            "rkey": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "side_effects": "write",
+      "idempotent": true,
+      "scopes_used": [
+        "atproto.repo",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "delete",
+      "summary": "Delete a WhiteWind entry by rkey.",
+      "description": "Calls com.atproto.repo.deleteRecord. Idempotent at the AppView (deleting a non-existent record is a no-op).",
+      "docs": {
+        "goal": "Retract a WhiteWind entry.",
+        "inputs_brief": "rkey (req)",
+        "outputs_brief": "{deleted: bool}",
+        "errors_brief": "auth_invalid, network_unreachable",
+        "example": "delete rkey='3l5...'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "delete"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "rkey"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "rkey": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "deleted"
+          ],
+          "properties": {
+            "deleted": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "side_effects": "destructive",
+      "idempotent": true,
+      "scopes_used": [
+        "atproto.repo",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "list",
+      "summary": "List the user's WhiteWind entries (read-only).",
+      "description": "Calls com.atproto.repo.listRecords with collection=com.whtwnd.blog.entry. Returns rkey, title, createdAt, and a content preview for each entry.",
+      "docs": {
+        "goal": "Enumerate the user's published WhiteWind entries.",
+        "inputs_brief": "limit (int, default 50, max 100)",
+        "outputs_brief": "{entries: [{rkey, title, createdAt, preview}]}",
+        "errors_brief": "auth_invalid, network_unreachable",
+        "example": "list limit=20"
+      },
+      "invocation": {
+        "kind": "subcommand",
+        "argv_template": [
+          "list",
+          "--limit",
+          "${input.limit}"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "entries"
+          ],
+          "properties": {
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "rkey": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "preview": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "side_effects": "read",
+      "idempotent": true,
+      "scopes_used": [
+        "atproto.repo",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    },
+    {
+      "name": "upload_image",
+      "summary": "Upload a local image as an ATProto blob and return blob_metadata for embedding in a post/update.",
+      "description": "Calls com.atproto.repo.uploadBlob. Returns blob_metadata that MUST be included in a subsequent post/update's `blobs[]` parameter or the PDS will garbage-collect the blob. The `markdown` field in the returned metadata is a ready-to-paste `![](url)` snippet using the PDS's getBlob endpoint.",
+      "docs": {
+        "goal": "Upload an image so it can be embedded in a WhiteWind entry.",
+        "inputs_brief": "image_path (req, local file path)",
+        "outputs_brief": "{blob_metadata, markdown, url, cid}",
+        "errors_brief": "file_not_found, mime_unsupported, blob_too_large, network_unreachable",
+        "example": "upload_image image_path='/tmp/header.png'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "upload-image"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "image_path"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "image_path": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "blob_metadata",
+            "url"
+          ],
+          "properties": {
+            "blob_metadata": {
+              "type": "object"
+            },
+            "markdown": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "cid": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "side_effects": "write",
+      "idempotent": false,
+      "scopes_used": [
+        "atproto.repo",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "data_boundary": {
+    "reads": [
+      {
+        "resource": "atproto.repo.posts",
+        "sensitivity": "low"
+      },
+      {
+        "resource": "fs.local",
+        "sensitivity": "low"
+      }
+    ],
+    "transmits": [
+      {
+        "to": "bsky.social",
+        "fields": [
+          "input.title",
+          "input.content",
+          "input.blobs",
+          "uploaded_image_bytes"
+        ],
+        "purpose": "publish whtwnd entry to user's PDS; PDS federates to whtwnd.com AppView. Entries are public by design.",
+        "third_party_retention": "persistent-indefinite"
+      }
+    ],
+    "persists": [],
+    "retention": {
+      "tool_local_days": 0
+    }
+  },
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.whtwnd import whtwnd_auth\nimport os\nauth = whtwnd_auth(os.environ['BSKY_HANDLE'], os.environ['BSKY_APP_PASSWORD'])\nassert auth['did'].startswith('did:'), 'auth resolved no DID'\nprint('OK: auth resolved to', auth['did'])\n"
+    ],
+    "timeout_seconds": 15,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK: auth resolved to did:"
+    }
+  },
+  "kill_switch": {
+    "kind": "url",
+    "url": "https://bsky.app/settings/app-passwords"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/whtwnd.py"
+  }
+}
