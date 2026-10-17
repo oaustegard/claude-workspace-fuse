@@ -1,0 +1,261 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-zeitgeist-delta",
+    "version": "0.1.0",
+    "name": "Muninn zeitgeist_delta",
+    "summary": "Semantic deduplication for zeitgeist drafts. Compares each topic section of a candidate zeitgeist memory against the N most-recent stored zeitgeists using Gemini embeddings (via Cloudflare AI Gateway) and emits a delta-only compressed version.",
+    "description": "Reads recent `zeitgeist`-tagged memories from Turso, splits the candidate draft into topic sections by markdown header, embeds each section + each prior memory's sections via Gemini's text-embedding model (proxied through Cloudflare AI Gateway), and computes cosine similarity. Sections above a duplicate threshold are flagged as redundant; the rest pass through into a compressed delta-only version that can be stored without bloating the memory store. Like `verify_patch` (LLM-as-judge with Anthropic + optional Turso writes) but with embeddings instead of completions and a different cloud surface (Cloudflare AI Gateway \u2192 Gemini, not Anthropic). Issue #5 calls this out as the test for whether two LLM-as-judge tools share a manifest pattern.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/zeitgeist_delta.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "embeddings",
+      "deduplication",
+      "memory",
+      "llm",
+      "gemini",
+      "cloudflare-ai-gateway"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.zeitgeist_delta"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.zeitgeist_delta"
+      ]
+    }
+  },
+  "env": [
+    {
+      "name": "CF_ACCOUNT_ID",
+      "prompt": "Cloudflare account ID hosting the AI Gateway used to proxy Gemini embedding calls. The tool routes through Cloudflare for caching, observability, and rate-limit pooling.",
+      "secret": false,
+      "required": true,
+      "validation_regex": "^[a-f0-9]{32}$"
+    },
+    {
+      "name": "CF_GATEWAY_ID",
+      "prompt": "Cloudflare AI Gateway slug \u2014 the gateway name chosen when it was created in the Cloudflare dashboard.",
+      "secret": false,
+      "required": true
+    },
+    {
+      "name": "CF_API_TOKEN",
+      "prompt": "Cloudflare API token scoped to AI Gateway access. Treat as a secret. Required.",
+      "secret": true,
+      "required": true
+    },
+    {
+      "name": "TURSO_TOKEN",
+      "prompt": "Turso libSQL auth token for the Muninn memory database. The tool reads recent zeitgeist memories to compare against. Required.",
+      "secret": true,
+      "required": true,
+      "obtain_url": "https://app.turso.tech/"
+    },
+    {
+      "name": "TURSO_URL",
+      "prompt": "Hostname of the Muninn memory libSQL database, e.g. 'mydb-username.turso.io'.",
+      "secret": false,
+      "required": true,
+      "validation_regex": "^[a-z0-9-]+\\.[a-z0-9-]+\\.turso\\.io$"
+    }
+  ],
+  "scopes": [
+    {
+      "resource": "compute.llm-inference",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Each check_delta call sends the candidate draft and N prior memory sections to Gemini's text-embedding model, consuming tokens against the user's Cloudflare AI Gateway quota. Cost is variable in candidate length \u00d7 N.",
+      "provider_scope": "cf-api-token (coarse; full AI Gateway access)"
+    },
+    {
+      "resource": "memory.tracking",
+      "actions": [
+        "read"
+      ],
+      "rationale": "Reads the N most-recent `zeitgeist`-tagged memories from Turso to compare against. Read-only; the tool returns a delta but does not write it back \u2014 the caller decides whether to store.",
+      "provider_scope": "turso-libsql-token (coarse; full DB access)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Talks to gateway.ai.cloudflare.com (which forwards to Gemini's embedding endpoint) and to the configured Turso libSQL host for memory reads.",
+      "provider_scope": "gateway.ai.cloudflare.com, *.turso.io"
+    }
+  ],
+  "actions": [
+    {
+      "name": "check_delta",
+      "summary": "Compare a candidate zeitgeist draft against recent stored zeitgeists and return per-section duplicate flags plus a compressed delta-only version.",
+      "description": "Synchronously: fetches recent memories, splits candidate into sections by markdown headers, embeds all sections, computes pairwise cosine similarity, flags sections above the threshold as redundant. Returns the report (per-section verdicts) and a compressed `delta_text` containing only the non-redundant sections. Read-only \u2014 does not write the delta back to Turso. Cost is variable in `n_recent` \u00d7 candidate length; budget ~$0.0001 per call at typical sizes.",
+      "docs": {
+        "goal": "Identify which sections of a candidate zeitgeist memory duplicate prior entries, and emit a compressed delta.",
+        "inputs_brief": "draft (req markdown), n_recent (int, default 5), threshold (float, default 0.85)",
+        "outputs_brief": "{report: [{section, verdict, similarity, ref_id?}], delta_text: string, total_sections: int, redundant_count: int}",
+        "errors_brief": "tracking_unconfigured, gateway_unreachable, embed_failed, draft_empty",
+        "example": "check_delta draft='# Topic A\\n...' n_recent=5 threshold=0.85"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "check-delta"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "draft"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "type": "string",
+            "minLength": 1
+          },
+          "n_recent": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 5
+          },
+          "threshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.85
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "report",
+            "delta_text",
+            "total_sections",
+            "redundant_count"
+          ],
+          "properties": {
+            "report": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "section": {
+                    "type": "string"
+                  },
+                  "verdict": {
+                    "type": "string",
+                    "enum": [
+                      "NOVEL",
+                      "REDUNDANT"
+                    ]
+                  },
+                  "similarity": {
+                    "type": "number"
+                  },
+                  "ref_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            },
+            "delta_text": {
+              "type": "string"
+            },
+            "total_sections": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "redundant_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "side_effects": "read",
+      "idempotent": true,
+      "scopes_used": [
+        "compute.llm-inference",
+        "memory.tracking",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "data_boundary": {
+    "reads": [
+      {
+        "resource": "compute.llm-inference",
+        "sensitivity": "low"
+      },
+      {
+        "resource": "memory.tracking",
+        "sensitivity": "medium"
+      }
+    ],
+    "transmits": [
+      {
+        "to": "gateway.ai.cloudflare.com",
+        "fields": [
+          "input.draft",
+          "fetched_zeitgeist_section_text"
+        ],
+        "purpose": "model-inference (embeddings; proxied through Cloudflare AI Gateway to Gemini)",
+        "third_party_retention": "unknown",
+        "vendor_tos_url": "https://www.cloudflare.com/service-specific-terms-application-services/#ai-gateway"
+      }
+    ],
+    "persists": []
+  },
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.zeitgeist_delta import _ensure_proxy_env\n_ensure_proxy_env()\nimport os\nfor k in ('CF_ACCOUNT_ID', 'CF_GATEWAY_ID', 'CF_API_TOKEN'):\n    assert os.environ.get(k), f'{k} not set'\nprint('OK: proxy env loaded')\n"
+    ],
+    "timeout_seconds": 5,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK: proxy env loaded$"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/zeitgeist-delta/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "external"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/zeitgeist_delta.py"
+  }
+}
