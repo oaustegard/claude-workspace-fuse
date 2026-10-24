@@ -1,0 +1,163 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-recall-sufficiency",
+    "version": "0.1.0",
+    "name": "Muninn recall_sufficiency",
+    "summary": "Iterative recall that searches until the answer is sufficient: recall, judge coverage, name the missing piece, re-search for it, repeat. The portable kernel of agentic RAG minus the multi-agent framing.",
+    "description": "A flowing-based loop over recall(). A pluggable judge decides whether the accumulated memory pool answers the question; on insufficiency it names the gap and enqueues a sharper query, which the next iteration runs. The pool is deduped and accumulates across iterations. Default judge is a dependency-free term-coverage heuristic; an LLM judge slots in via the same Verdict contract (with the self-grading caveat documented in the module). Transient Turso cold-start failures are absorbed by internal backoff so the sufficiency budget is reserved for genuine reformulations. A no-progress guard stops the loop when a reformulation finds nothing new rather than burning the budget. Honestly degenerate on a single rich KB where FTS+tags already cover query terms; built for autonomous/programmatic runs and cross-corpus retrieval where bailing at 'not found' is the wrong move.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/recall_sufficiency.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "rag",
+      "agentic-rag",
+      "recall",
+      "retrieval",
+      "sufficient-context",
+      "flowing"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.recall_sufficiency"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.recall_sufficiency"
+      ]
+    }
+  },
+  "scopes": [
+    {
+      "resource": "turso.libsql",
+      "actions": [
+        "read"
+      ],
+      "sensitivity": "medium",
+      "rationale": "Calls recall() to read from the Turso-backed memory store; no writes."
+    },
+    {
+      "resource": "compute.local",
+      "actions": [
+        "read"
+      ],
+      "rationale": "Term-coverage judging and loop orchestration are local computation. An optional LLM judge would add compute.llm-inference, but the default judge is pure."
+    }
+  ],
+  "actions": [
+    {
+      "name": "recall_until_sufficient",
+      "summary": "Recall iteratively until a judge rules the accumulated pool sufficient, a reformulation stops making progress, or the iteration budget is hit.",
+      "description": "Builds and runs the flowing loop and returns the populated LoopState (pool, gaps, satisfied/stalled flags, iteration count). The judge, iteration budget (max_iters), and per-call result count (n) are configurable.",
+      "docs": {
+        "goal": "Get a complete-enough set of memories for a multi-part question without bailing at the first 'not found'.",
+        "inputs_brief": "question (req), judge (callable, default term_coverage_judge), max_iters (int, default 4), n (int, default 6)",
+        "outputs_brief": "LoopState{pool, gaps, queries, iters, satisfied, stalled}",
+        "errors_brief": "Re-raises the last recall() error only after exhausting internal transient-failure backoff.",
+        "example": "recall_until_sufficient question='discharge meds, diet, and allergies for the patient'"
+      },
+      "invocation": {
+        "kind": "in-process",
+        "argv_template": [
+          "recall_until_sufficient"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "max_iters": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "default": 4
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 6
+          }
+        }
+      },
+      "output": {
+        "format": "object",
+        "schema": {
+          "type": "object",
+          "required": [
+            "pool",
+            "satisfied"
+          ],
+          "properties": {
+            "pool": {
+              "type": "array"
+            },
+            "gaps": {
+              "type": "array"
+            },
+            "satisfied": {
+              "type": "boolean"
+            },
+            "stalled": {
+              "type": "boolean"
+            },
+            "iters": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "side_effects": "Reads the memory store; no writes.",
+      "idempotent": true,
+      "scopes_used": [
+        "turso.libsql",
+        "compute.local"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.recall_sufficiency import term_coverage_judge, Verdict\nassert term_coverage_judge('server specs project', [{'text': 'server specs project'}]).sufficient is True\nv = term_coverage_judge('server specs allergies', [{'text': 'server specs'}], threshold=1.0)\nassert v.sufficient is False and 'allergies' in v.reformulation\nprint('OK')\n"
+    ],
+    "timeout_seconds": 10,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK$"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/recall-sufficiency/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/recall_sufficiency.py"
+  }
+}
