@@ -1,0 +1,58 @@
+# dispatching-subagents - Changelog
+
+All notable changes to the `dispatching-subagents` skill are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+
+## [0.2.2] - 2026-10-14
+
+### Other
+
+- swarming-to-green 0.7.0: rename from swarming-failing-tests
+
+## [0.2.1] - 2026-10-13
+
+### Other
+
+- swarming-failing-tests 0.2.1, dispatching-subagents 0.2.1: lenient result JSON
+
+## [0.2.1] - 2026-10-13
+
+### Other
+
+- dispatching-subagents 0.2.1: accept raw control characters inside JSON strings in out files
+
+## [0.2.0] - 2026-10-13
+
+### Other
+
+- swarming-failing-tests 0.2.0, dispatching-subagents 0.2.0: worker deny rules, one_stage_ok
+
+## [0.2.0] - 2026-10-13
+
+### Other
+
+- dispatching-subagents 0.2.0: task `deny` / `--deny` rules passed as --disallowedTools
+
+## [0.1.3] - 2026-10-12
+
+### Other
+
+- swarming-failing-tests: the haiku-cc swarm harness as a reusable skill
+
+## [0.1.2] - 2026-10-12
+
+### Other
+
+- agent-routing, dispatching-subagents: the Agent tool can set effort via an agent type
+
+## [0.1.1] - 2026-10-11
+
+### Other
+
+- orchestrating-agents renamed orchestrating-chat-agents; old name deprecated
+- dispatching-subagents: README with a map of the neighbouring skills
+
+## [0.1.0] - 2026-10-11
+
+### Other
+
+- dispatching-subagents 0.1.0: choose Agent, Workflow or headless claude -p
