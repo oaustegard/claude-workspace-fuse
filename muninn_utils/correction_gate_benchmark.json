@@ -1,0 +1,38 @@
+{
+  "_comment": "Seed benchmark for correction_gate (issue #83). Cases are seeded from REAL session transcripts / documented behaviour, not synthetic scenarios (per eval-realism: Opus 4.8 writes for the inferred grader). Held-out trigger cases are checked DIFFERENTIALLY: a candidate trigger set must fire exactly the same triggers on each past input as the current baseline does — a new trigger that starts firing on one of these unrelated inputs (bloat / false-positive) is a regression. 'expected' is optional and used only as a staleness signal; leave it empty for held-out cases and rely on the differential check. Extend this file when therapy mines a new held-out input from a transcript.",
+  "_held_in_note": "The motivating (held-in) case is supplied by the therapy write-path at correction time, not stored here — it is specific to the correction being proposed.",
+  "trigger": [
+    {
+      "name": "fuse-mount-question",
+      "kind": "trigger",
+      "input": "how does the /mnt/muninn fuse mount project memories as markdown files?",
+      "source": "claude-workspace-fuse/docs/memfs.md"
+    },
+    {
+      "name": "boot-recovery-cold-start",
+      "kind": "trigger",
+      "input": "cold start boot came up degraded, codeload 403 on the spokes, need add_repo",
+      "source": "session 74901b87 (proxy-scope model)"
+    },
+    {
+      "name": "turso-503-cold-start",
+      "kind": "trigger",
+      "input": "first recall call failed with a 503 from the proxy on cold start",
+      "source": "ops:proxy-503-retry-pattern"
+    },
+    {
+      "name": "blog-publish-reindex",
+      "kind": "trigger",
+      "input": "published a whtwnd blog post, now rebuild the muninn search index",
+      "source": "search_reindex.py (blog-publishing-trigger 2026-06-20)"
+    },
+    {
+      "name": "unrelated-calendar-chore",
+      "kind": "trigger",
+      "input": "what meetings do I have on my calendar tomorrow afternoon?",
+      "source": "negative case — no memory trigger should start firing on a plain calendar lookup"
+    }
+  ],
+  "recall": [],
+  "reindex": []
+}
