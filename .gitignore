@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+# tree-sitting grammars are shipped, including in the generated plugin copy
+!tree-sitting/parsers/*.so
+!plugins/*/skills/tree-sitting/parsers/*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Personal credentials
+config.json
+*.key
+*.pem
+temp-spotify-mcp/
+image-to-svg/scripts/nn_assign
