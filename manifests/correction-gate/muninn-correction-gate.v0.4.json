@@ -1,0 +1,165 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-correction-gate",
+    "version": "0.1.0",
+    "name": "Muninn correction_gate",
+    "summary": "Held-in + held-out regression gate for self-corrections before they become boot-loaded context. Weng Self-Harness stage 3: measure that a new trigger catches the failure that motivated it and regresses nothing else.",
+    "description": "Therapy mines weaknesses (stage 1) and proposes bounded edits — new desire-triggers, ops entries, voice-signature scans (stage 2) — but nothing validated a correction before it shipped as permanent context. correction_gate adds stage 3 over the three objectively-measurable slices (trigger-firing accuracy, recall precision, reindex verification); voice and relevance stay hand-evolved. Held-in: the motivating input must fail under the baseline config and pass under the candidate — a correction that fixes nothing is rejected. Held-out: replay past inputs seeded from real transcripts (not synthetic — per eval-realism) and assert the candidate's behaviour differs from the baseline nowhere it wasn't meant to; a new trigger firing on an unrelated past input (bloat / false-positive) is a regression. The trigger slice is pure (no Turso): it re-derives the config-fallback term-intersection match in remembering/hints.py. The recall slice takes an injectable query->ids runner (live recall() in production, a stub in tests). Wired into remembering/config.py set_rule so a boot-loaded correction that regresses is blocked at write time rather than shipping on faith.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/correction_gate.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "self-improvement",
+      "regression-gate",
+      "self-harness",
+      "triggers",
+      "recall",
+      "eval"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.correction_gate"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.correction_gate"
+      ]
+    }
+  },
+  "scopes": [
+    {
+      "resource": "compute.local",
+      "actions": [
+        "read"
+      ],
+      "rationale": "Term-intersection trigger matching and differential comparison are local, pure computation. The recall slice reads via an injected runner; the gate module itself performs no I/O."
+    },
+    {
+      "resource": "turso.libsql",
+      "actions": [
+        "read"
+      ],
+      "sensitivity": "low",
+      "rationale": "Only when the recall-slice runner is bound to live recall(); the trigger slice and the gate core touch no store."
+    }
+  ],
+  "actions": [
+    {
+      "name": "gate_config_correction",
+      "summary": "Gate a proposed boot-loaded config correction: full trigger gate for recall-triggers, budget guard otherwise. Returns None when nothing is measurable.",
+      "description": "The therapy write-path entry point. For a recall-triggers change it parses before/after trigger lists and runs the held-in (optional motivating Case) + held-out (differential, from the seed benchmark) gate. For other boot-loaded rules it runs a boot-budget guard against context bloat. Returns a GateResult (block on .passed) or None (proceed).",
+      "docs": {
+        "goal": "Refuse to boot-load a self-correction that fixes nothing or regresses an established behaviour.",
+        "inputs_brief": "key, category, before_value, after_value; optional motivating Case, benchmark dict, max_boot_chars",
+        "outputs_brief": "GateResult{passed, held_in_passed, regressions, stale, summary} or None",
+        "errors_brief": "Pure; raises only on malformed inputs. The remembering hook swallows import/gate errors and raises ValueError only on a decisive REJECT.",
+        "example": "gate_config_correction('recall-triggers','ops', old_json, new_json, motivating=Case(...))"
+      },
+      "invocation": {
+        "kind": "in-process",
+        "argv_template": [
+          "gate_config_correction"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "key",
+          "category",
+          "after_value"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "before_value": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "after_value": {
+            "type": "string"
+          },
+          "max_boot_chars": {
+            "type": "integer",
+            "minimum": 1000,
+            "default": 120000
+          }
+        }
+      },
+      "output": {
+        "format": "object",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "held_in_passed": {
+              "type": "boolean"
+            },
+            "regressions": {
+              "type": "array"
+            },
+            "stale": {
+              "type": "array"
+            },
+            "summary": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "side_effects": "None. Pure computation; the recall runner (if used) reads the store.",
+      "idempotent": true,
+      "scopes_used": [
+        "compute.local"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.correction_gate import gate_trigger_correction, Case\nbase=['fuse','memfs']\nho=[Case('fuse-q','the fuse mount question',frozenset())]\ngood=gate_trigger_correction(before_triggers=base, after_triggers=base+['tree-sitter'], held_in=Case('ts','a tree-sitter grammar',frozenset({'tree-sitter'})), held_out=ho)\nassert good.passed is True, good.summary\nbad=gate_trigger_correction(before_triggers=base, after_triggers=base+['mount'], held_in=Case('m','the fuse mount',frozenset({'mount'})), held_out=ho)\nassert bad.passed is False, bad.summary\nprint('OK')\n"
+    ],
+    "timeout_seconds": 10,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "^OK$"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/correction-gate/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "none"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/correction_gate.py"
+  }
+}

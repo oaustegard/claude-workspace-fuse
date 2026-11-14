@@ -1,0 +1,123 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-inbox-heartbeat",
+    "version": "0.1.0",
+    "name": "Muninn inbox_heartbeat",
+    "summary": "Move an inbox surface's last_checked watermark only when that surface reported an int count; hold it on None, and refuse a run that left a surface unreported.",
+    "description": "The inbox routine keeps one watermark per surface (state[surface]['last_checked']). Bumping every watermark at the end of a run moved them past unread items when fetches printed nothing or only HTTP status codes; one run skipped 14 unseen mentions, including a reply that was never sent. commit_heartbeats(state, counts, now) takes one count per surface: an int (0 included) bumps, None (fetch failed, raised, or skipped) holds, and a surface missing from counts raises. A count for a surface not in state raises, and so does any non-int, bool or negative count. Validation runs before any write, so a raise leaves state untouched. Pure compute: no I/O, no environment, no state of its own.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/inbox_heartbeat.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "inbox",
+      "watermark",
+      "heartbeat",
+      "routine",
+      "state",
+      "muninn-internal"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.inbox_heartbeat"
+      }
+    },
+    "entrypoint": {
+      "command": ["python", "-m", "muninn_utils.inbox_heartbeat"]
+    }
+  },
+  "scopes": [
+    {
+      "resource": "compute.local",
+      "actions": ["read"],
+      "rationale": "Pure dict validation and mutation of the state dict the caller passes in. Nothing is read from or written to disk, the network, or the memory store; persisting the state is the caller's job."
+    }
+  ],
+  "actions": [
+    {
+      "name": "commit_heartbeats",
+      "summary": "Bump last_checked for surfaces that reported an int count; hold surfaces that reported None; refuse unreported surfaces.",
+      "description": "Validates every count first (int or None; bool, float, str and negative values are refused), then requires exactly one count per surface key in state. Only then mutates state, setting last_checked = now on each int-count surface. Returns the bumped and held surface lists and a one-line run summary in state order.",
+      "docs": {
+        "goal": "End an inbox run without moving a watermark past items nobody read.",
+        "inputs_brief": "state (dict of surface -> dict), counts (dict of surface -> int or None, one per surface in state), now (non-empty timestamp string)",
+        "outputs_brief": "{bumped: [surface], held: [surface], line: 'inbox: surface=N ... surface=FAILED'}",
+        "errors_brief": "ValueError for a missing surface, an unknown surface, a bad count, a non-dict surface entry, or an empty now; TypeError when state or counts is not a dict. State is unchanged on any raise.",
+        "example": "commit_heartbeats(state, {'muninns-inbox': 3, 'bluesky': 0, 'bluesky-dms': None}, now)"
+      },
+      "invocation": {"kind": "in-process", "argv_template": ["commit_heartbeats"]},
+      "input": {
+        "type": "object",
+        "required": ["state", "counts", "now"],
+        "additionalProperties": false,
+        "properties": {
+          "state": {"type": "object"},
+          "counts": {
+            "type": "object",
+            "additionalProperties": {"type": ["integer", "null"], "minimum": 0}
+          },
+          "now": {"type": "string", "minLength": 1}
+        }
+      },
+      "output": {
+        "format": "object",
+        "schema": {
+          "type": "object",
+          "required": ["bumped", "held", "line"],
+          "properties": {
+            "bumped": {"type": "array", "items": {"type": "string"}},
+            "held": {"type": "array", "items": {"type": "string"}},
+            "line": {"type": "string"}
+          }
+        }
+      },
+      "side_effects": "Sets last_checked on the state dict passed in, for int-count surfaces only. Nothing is persisted.",
+      "idempotent": true,
+      "scopes_used": ["compute.local"],
+      "error_envelope": "standard",
+      "examples": [
+        {
+          "description": "A run where one fetch failed and one surface came back empty.",
+          "input": {
+            "state": {"bluesky": {"last_checked": "2026-10-07T21:00:00Z"}, "bluesky-dms": {"last_checked": "2026-10-07T21:00:00Z"}},
+            "counts": {"bluesky": 0, "bluesky-dms": null},
+            "now": "2026-10-08T09:00:00Z"
+          },
+          "output": {
+            "bumped": ["bluesky"],
+            "held": ["bluesky-dms"],
+            "line": "inbox: bluesky=0 bluesky-dms=FAILED"
+          }
+        }
+      ],
+      "runtime_telemetry": {}
+    }
+  ],
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "from muninn_utils.inbox_heartbeat import commit_heartbeats\ns={'a':{'last_checked':'old'},'b':{'last_checked':'old'}}\nr=commit_heartbeats(s,{'a':0,'b':None},'now')\nassert s=={'a':{'last_checked':'now'},'b':{'last_checked':'old'}}, s\nassert r['line']=='inbox: a=0 b=FAILED', r\nprint('OK')\n"
+    ],
+    "timeout_seconds": 10,
+    "success": {"exit_code": 0, "stdout_regex": "^OK$"}
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/inbox-heartbeat/REVOKE.md"
+  },
+  "cost": {"install_fee_cents": 0, "monthly_fee_cents": 0, "usage_model": "none"},
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/inbox_heartbeat.py"
+  }
+}

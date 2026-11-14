@@ -1,0 +1,299 @@
+{
+  "manifest_version": "0.4",
+  "tool": {
+    "id": "muninn-blog-publish",
+    "version": "0.1.0",
+    "name": "Muninn blog_publish",
+    "summary": "Publish HTML pages to austegard.com via GitHub Pages, optionally update the Atom feed, optionally announce on Bluesky with a follow-up engagement-link commit. Encoded as a flowing DAG so the bsky chain is detached and partial-failure-tolerant.",
+    "description": "Encoded as a flowing graph: page-commit \u2192 wait-for-deploy \u2192 (when feed_entry given) feed-update; bsky-announce + engagement-link-commit run as detached side-effects. Caller gets the page URL the moment GH Pages serves it; bsky failures land in `flow.detached_failures` and never bubble up as publish failures. The 300-grapheme bsky cap is enforced as a `validate=` gate BEFORE any createRecord call. Same primary credential as `perch_publish` (GH_TOKEN), same secondary credentials as `bsky_card` (MUNINN_BSKY_HANDLE, MUNINN_BSKY_APP_PASSWORD) \u2014 third publishing target after perch_publish and (planned) whtwnd. Issue #5 calls this out as the test for whether v0.4 `writes[]` generalises across multiple publishing surfaces in the same agent.",
+    "homepage": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/blog_publish.py",
+    "author": {
+      "name": "Muninn (raven of memory; agent operating on behalf of Oskar Austegard)",
+      "url": "https://muninn.austegard.com"
+    },
+    "license": "MIT",
+    "tags": [
+      "publishing",
+      "github-pages",
+      "atom-feed",
+      "blog",
+      "bluesky",
+      "flowing"
+    ]
+  },
+  "runtime": {
+    "kind": "python-module",
+    "install": {
+      "method": "preinstalled",
+      "locator": {
+        "kind": "python-module",
+        "module": "muninn_utils.blog_publish"
+      }
+    },
+    "entrypoint": {
+      "command": [
+        "python",
+        "-m",
+        "muninn_utils.blog_publish"
+      ]
+    }
+  },
+  "env": [
+    {
+      "name": "GH_TOKEN",
+      "prompt": "GitHub personal access token. Needs write access to the publish-target repo (oaustegard/austegard.com by default). Same coarse credential as perch_publish, issue_close, perch_triage, verify_patch \u2014 share-by-default is intentional. Falls back to GITHUB_TOKEN if GH_TOKEN is not set.",
+      "secret": true,
+      "required": true,
+      "validation_regex": "^(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]+)$",
+      "obtain_url": "https://github.com/settings/personal-access-tokens"
+    },
+    {
+      "name": "GITHUB_TOKEN",
+      "prompt": "Optional fallback for GH_TOKEN. The source reads `os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')`, so either name works. Same scope/sensitivity as GH_TOKEN.",
+      "secret": true,
+      "required": false,
+      "validation_regex": "^(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]+)$",
+      "obtain_url": "https://github.com/settings/personal-access-tokens"
+    },
+    {
+      "name": "MUNINN_BSKY_HANDLE",
+      "prompt": "The Bluesky handle to post the announcement as, e.g. 'austegard.com'. Optional \u2014 leave blank to skip the bsky chain entirely (the page-publish path still runs).",
+      "secret": false,
+      "required": false,
+      "validation_regex": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$",
+      "obtain_url": "https://bsky.app/settings/account"
+    },
+    {
+      "name": "MUNINN_BSKY_APP_PASSWORD",
+      "prompt": "App password for the Bluesky handle above. Format is four hyphen-separated four-character groups. Treat as a secret. Required only if MUNINN_BSKY_HANDLE is set; otherwise leave blank. Bsky app passwords cannot be programmatically revoked.",
+      "secret": true,
+      "required": false,
+      "validation_regex": "^[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$",
+      "obtain_url": "https://bsky.app/settings/app-passwords"
+    }
+  ],
+  "scopes": [
+    {
+      "resource": "github.repo.contents",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Reads the existing feed file (when a feed_entry is supplied), writes the new page commit, optionally commits the updated feed, optionally appends a follow-up engagement-link commit referencing the bsky post. Lands directly on the publish branch with no PR.",
+      "provider_scope": "github-pat (coarse; full account write access)"
+    },
+    {
+      "resource": "atproto.repo",
+      "actions": [
+        "write"
+      ],
+      "rationale": "When MUNINN_BSKY_HANDLE+PASSWORD are set, creates an app.bsky.feed.post record on the user's repo announcing the published page. Detached side-effect: failure does not abort the publish.",
+      "provider_scope": "bsky-app-password (coarse; full repo write except DMs)"
+    },
+    {
+      "resource": "net.outbound",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "rationale": "Talks to api.github.com for git operations, polls the eventually-served page URL on austegard.com to confirm GitHub Pages deploy, and (when bsky configured) talks to bsky.social for the announce.",
+      "provider_scope": "api.github.com, austegard.com, bsky.social"
+    }
+  ],
+  "actions": [
+    {
+      "name": "publish_and_announce",
+      "summary": "Commit a page, wait for GH Pages to serve it, optionally update the Atom feed, optionally announce on Bluesky with a follow-up engagement-link commit.",
+      "description": "Synchronous nodes: page-commit, wait-for-deploy, feed-update (when feed_entry given). Detached nodes: bsky-announce (when bsky auth supplied), engagement-link-commit (depends on bsky-announce success). The bsky_text input is validated against the 300-grapheme cap (using the bsky_limit utility) BEFORE the bsky chain fires; an over-cap text aborts only the bsky chain, not the page publish. The `deployed` boolean reflects whether the page URL was served within the deploy budget; `bsky_post` is null when the bsky chain was skipped or failed; `detached_failures` lists any background failures.",
+      "docs": {
+        "goal": "Publish an HTML page and optionally announce it on Bluesky with engagement linking.",
+        "inputs_brief": "path (req), content (req), bsky_text (req if announcing), feed_entry (optional), repo (default oaustegard/austegard.com)",
+        "outputs_brief": "{page_url, commit_sha, feed_sha, deployed, bsky_post, update_sha, detached_failures}",
+        "errors_brief": "auth_invalid, commit_failed, deploy_timeout, bsky_text_too_long, target_unreachable",
+        "example": "publish_and_announce path='blog/post.html' content='<html>...</html>' bsky_text='New post: ...'"
+      },
+      "invocation": {
+        "kind": "stdin-json",
+        "argv_template": [
+          "publish-and-announce"
+        ]
+      },
+      "input": {
+        "type": "object",
+        "required": [
+          "path",
+          "content"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bsky_text": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "feed_entry": {
+            "type": "object"
+          },
+          "repo": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+            "default": "oaustegard/austegard.com"
+          }
+        }
+      },
+      "output": {
+        "format": "json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "page_url",
+            "commit_sha",
+            "deployed"
+          ],
+          "properties": {
+            "page_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "commit_sha": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "feed_sha": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "deployed": {
+              "type": "boolean"
+            },
+            "bsky_post": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "cid": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "rkey": {
+                  "type": "string"
+                }
+              }
+            },
+            "update_sha": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "detached_failures": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "error": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "side_effects": "destructive",
+      "idempotent": false,
+      "scopes_used": [
+        "github.repo.contents",
+        "atproto.repo",
+        "net.outbound"
+      ],
+      "error_envelope": "standard",
+      "runtime_telemetry": {}
+    }
+  ],
+  "data_boundary": {
+    "reads": [
+      {
+        "resource": "github.repo.contents",
+        "sensitivity": "low"
+      }
+    ],
+    "transmits": [
+      {
+        "to": "api.github.com",
+        "fields": [
+          "env.GH_TOKEN",
+          "input.content",
+          "input.path"
+        ],
+        "purpose": "publish page commit + feed-update commit + engagement-link commit",
+        "third_party_retention": "none-per-vendor-tos",
+        "vendor_tos_url": "https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement"
+      },
+      {
+        "to": "bsky.social",
+        "fields": [
+          "input.bsky_text",
+          "computed.page_url"
+        ],
+        "purpose": "announce published page; PDS federates publicly to the network firehose",
+        "third_party_retention": "persistent-indefinite"
+      },
+      {
+        "to_kind": "agent-supplied",
+        "to_constraint": "GitHub Pages domain for the input.repo (e.g. austegard.com, muninn.austegard.com). HEAD request only; no body sent. Used to confirm the page has been served before returning.",
+        "fields": [
+          "computed.page_url"
+        ],
+        "purpose": "poll page URL to confirm GH Pages deploy",
+        "third_party_retention": "unknown"
+      }
+    ],
+    "persists": []
+  },
+  "smoke": {
+    "kind": "shell",
+    "command": [
+      "python",
+      "-c",
+      "import os, json, urllib.request\ntoken = os.environ['GH_TOKEN']\nreq = urllib.request.Request('https://api.github.com/repos/oaustegard/austegard.com', headers={'Authorization': f'token {token}', 'Accept': 'application/vnd.github+json', 'User-Agent': 'blog-publish-smoke'})\nd = json.loads(urllib.request.urlopen(req).read())\nassert d['permissions']['push'], 'token lacks write access to publish-target repo'\nprint('OK: write access confirmed to', d['name'])\n"
+    ],
+    "timeout_seconds": 10,
+    "success": {
+      "exit_code": 0,
+      "stdout_regex": "OK: write access confirmed to austegard\\.com"
+    }
+  },
+  "kill_switch": {
+    "kind": "manual",
+    "instructions_url": "https://github.com/oaustegard/muninn-utilities/blob/main/manifests/blog-publish/REVOKE.md"
+  },
+  "cost": {
+    "install_fee_cents": 0,
+    "monthly_fee_cents": 0,
+    "usage_model": "external"
+  },
+  "support": {
+    "issues_url": "https://github.com/oaustegard/muninn-utilities/issues",
+    "docs_url": "https://github.com/oaustegard/muninn-utilities/blob/main/muninn_utils/blog_publish.py"
+  }
+}
